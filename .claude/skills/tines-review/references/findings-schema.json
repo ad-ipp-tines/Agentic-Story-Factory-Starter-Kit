@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tines-stories-as-code/tines-review/findings-schema.json",
+  "title": "Tines story review findings",
+  "description": "The contract /tines-review emits and review.yml passes to --json-schema (the @file form is VERIFY, docs/VERIFY.md #21 - inline the schema if it fails). verdict must be changes_requested when any finding has severity blocker or major. path is stories/<slug>/story.json#<action name>, stories/<slug>/story.meta.yaml, or tines-skills/<name>/SKILL.md. rule is a lint rule id from policies/lint-rules.yml or a checklist letter from /tines-review. Fixes to a story go through /mcp, so suggested_prompt is a ready /tines-build-story invocation, never an edit to the export.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "findings"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "changes_requested"],
+      "description": "pass only when no finding is blocker or major"
+    },
+    "findings": {
+      "type": "array",
+      "description": "Empty when the review found nothing; ordered blocker first",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "rule", "severity", "message"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "stories/<slug>/story.json#<action name> | stories/<slug>/story.meta.yaml | stories/<slug>/tests/<file> | tines-skills/<name>/SKILL.md | policies/<file>"
+          },
+          "rule": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A rule id from policies/lint-rules.yml (for example http_retry_bounds, agent_output_schema_required, monitoring_required_for_prod, tools_are_requests) or a /tines-review checklist letter a-m, or self-review / one-story-per-pr"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["blocker", "major", "minor", "info"],
+            "description": "blocker = must not merge; major = must be fixed or explained before merge; minor = fix soon; info = observation"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "description": "One sentence stating the defect. Never contains a credential value, a token or an email address"
+          },
+          "suggested_fix": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "What to change, in plain words"
+          },
+          "suggested_prompt": {
+            "type": "string",
+            "maxLength": 1500,
+            "description": "A ready /tines-build-story <slug> \"<prompt>\" that would fix it; present whenever the fix is a story change"
+          }
+        }
+      }
+    },
+    "cost_notes": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Credit observations: new AI Agent actions, tool counts, schedule intervals, provider, budget line present or missing"
+    }
+  }
+}

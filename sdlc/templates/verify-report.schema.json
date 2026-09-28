@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentic-story-factory/sdlc/templates/verify-report.schema.json",
+  "title": "Verify report (the merged verdict of the verify phase)",
+  "description": "sdlc/work/<slug>/verify-report.json, written only by `./scripts/sdlc apply <slug> verify-merge` — a deterministic merge, never a model. Inputs: the tines-reviewer, security-reviewer (when dispatched) and story-qa outputs saved under .sdlc/out/<slug>/, and the cost checks of `./scripts/sdlc estimate --check`. The rule: any finding of severity blocker or major makes the verdict changes_requested; a specialist that returned needs_human or blocked, or an output that failed its schema twice, makes it blocked (GX). Spec: REPO-DESIGN.md §4.4 (04 verify), §5.3.7. The finding shape is the reused .claude/skills/tines-review/references/findings-schema.json item plus `source`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["report_version", "story_key", "attempt", "sha", "generated_at", "verdict", "sources", "findings", "cost_checks", "qa", "rework_package_ref"],
+  "properties": {
+    "report_version": { "const": 1 },
+    "story_key": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+    "attempt": { "type": "integer", "minimum": 0, "maximum": 3, "description": "The tracker row's attempt when the merge ran (0 = first build)" },
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$", "description": "HEAD of the story branch the verdicts judged" },
+    "generated_at": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "verdict": { "type": "string", "enum": ["pass", "changes_requested", "blocked"] },
+    "sources": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "status"],
+        "properties": {
+          "source": { "type": "string", "enum": ["tines-reviewer", "security-reviewer", "story-qa", "cost-checks"] },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "changes_requested", "needs_human", "blocked", "skipped", "schema_failed"],
+            "description": "skipped = not dispatched (security-reviewer's condition did not hold, sdlc/lifecycle/dispatch-rules.yaml `conditional`)"
+          },
+          "out_ref": { "type": "string", "description": "The local file the verdict came from (.sdlc/out/<slug>/<agent>-<attempt>.json); local only, never committed" },
+          "findings_count": { "type": "integer", "minimum": 0 },
+          "reason": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "Every finding from every source, ordered blocker first",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "cost_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["results"],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "result"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^cost\\.[0-9]+$" },
+              "result": { "type": "string", "enum": ["PASS", "FAIL"] },
+              "detail": { "type": "string", "maxLength": 400 }
+            }
+          }
+        },
+        "projection": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "runs_per_day": { "type": "number", "minimum": 0 },
+            "credits_per_run_observed": { "type": "number", "minimum": 0 },
+            "monthly_credits": { "type": "number", "minimum": 0 },
+            "provider": { "type": "string", "enum": ["tines_provided", "custom", "local", "none"] },
+            "billed_cost_note": { "type": "string", "maxLength": 300 }
+          }
+        },
+        "budget_fit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "team": { "type": "string" },
+            "ceiling": { "type": "number", "minimum": 0 },
+            "committed": { "type": "number", "minimum": 0 },
+            "remaining_after": { "type": "number" }
+          }
+        }
+      }
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cases_total", "cases_passed", "pass_k", "failing_cases"],
+      "properties": {
+        "cases_total": { "type": "integer", "minimum": 0 },
+        "cases_passed": { "type": "integer", "minimum": 0 },
+        "pass_k": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["k", "value"],
+          "properties": {
+            "k": { "type": "integer", "minimum": 1 },
+            "value": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Share of model-graded cases whose k trials ALL passed; null when the story has no model-graded case (sdlc/evals/README.md)" }
+          }
+        },
+        "failing_cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["case_id", "suite", "kind"],
+            "properties": {
+              "case_id": { "type": "string" },
+              "suite": { "type": "string", "enum": ["capability", "regression"] },
+              "kind": { "type": "string", "enum": ["deterministic", "model_graded"] },
+              "trials": { "type": "integer", "minimum": 1 },
+              "passes": { "type": "integer", "minimum": 0 },
+              "observed_summary": { "type": "string", "maxLength": 600 }
+            }
+          }
+        },
+        "credits_observed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "credits_used"],
+            "properties": {
+              "action": { "type": "string" },
+              "credits_used": { "type": "number", "minimum": 0 },
+              "input_tokens": { "type": "integer", "minimum": 0 },
+              "output_tokens": { "type": "integer", "minimum": 0 },
+              "model": { "type": "string", "description": "As the AI Agent event metadata reports it" }
+            }
+          }
+        }
+      }
+    },
+    "rework_package_ref": {
+      "type": ["string", "null"],
+      "pattern": "^\\.sdlc/out/[a-z0-9-]{1,64}/rework-[0-9]+\\.json$",
+      "description": "Set when the verdict is changes_requested: the local rework package (sdlc/templates/rework-package.schema.json)"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "verdict": { "const": "pass" } } },
+      "then": {
+        "properties": {
+          "findings": { "items": { "properties": { "severity": { "enum": ["minor", "info"] } } } },
+          "rework_package_ref": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "verdict": { "const": "changes_requested" } } },
+      "then": { "properties": { "rework_package_ref": { "type": "string" } } }
+    }
+  ],
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "path", "rule", "severity", "message"],
+      "properties": {
+        "source": { "type": "string", "enum": ["tines-reviewer", "security-reviewer", "story-qa", "cost-checks"] },
+        "path": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "rule": {
+          "type": "string", "minLength": 1, "maxLength": 80,
+          "description": "A lint rule id (policies/lint-rules.yml), a /tines-review checklist letter, sec.N, cost.N, or eval.case_failed (path = sdlc/work/<slug>/evals/cases.yaml#<case_id>)"
+        },
+        "severity": { "type": "string", "enum": ["blocker", "major", "minor", "info"] },
+        "message": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "suggested_fix": { "type": "string", "maxLength": 1000 },
+        "suggested_prompt": { "type": "string", "maxLength": 1500 }
+      }
+    }
+  }
+}

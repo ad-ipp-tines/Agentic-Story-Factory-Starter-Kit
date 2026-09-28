@@ -1,0 +1,43 @@
+# story.meta.yaml — [OPS] 16 · Apply approved alert rule (sub). Contract: ./README.md; caller: apply (#64) in
+# ../ops-story-health-monitor/story.json. Names only; never a value, never a hostname, never a person.
+# NOT BUILT YET — no story.json until the first /tines-export. The monitor does not ship before this story.
+
+slug: ops-apply-alert-rule
+name: "[OPS] 16 · Apply approved alert rule (sub)"   # must equal story.json name
+mode: sub-story                               # Send to Story target of the sweep's apply action ONLY; never an agent tool, never a Mode 4 tool
+owner_team: OPS                               # the [OPS] prefix; owner role: ops; CODEOWNERS: security-platform
+tier: ops
+change_control: required
+locked_in_prod: true                          # `locked: true` via ./scripts/tines story-update after ship (see _manifest.yaml locked_slugs)
+never_touch: true                             # policies/never-touch.yml name pattern ^\[OPS\]; changed only through its own change request
+
+monitoring:
+  monitor_failures: true                      # story-level "Notify when any action fails"
+  recipients: manifest                        # resolved by ship.yml from _manifest.yaml
+  no_events_watchdog: null                    # event-driven (called only after an approval)
+
+keep_events_for_days: 30                      # raised [BY HAND] above the 7-day default
+
+credentials:
+  - tines_api_ops                             # Text; Editor-role TEAM key; exists in THIS story only (POLICY.md "monitor-apply"); allowed_hosts = the tenant host;
+                                              #   Workbench access off; expires_at set. Writes only: recipients, monitor flags INTO A DRAFT, change requests.
+                                              #   Never POST /api/v1/stories/{id}/disable — a disable is dispatched to rollback.yml's break-glass job.
+  - github_dispatch                           # dispatches rollback.yml (emergency: true) for an approved disable; allowed_hosts = api.github.com;
+                                              #   scope stated in ../ops-story-health-monitor/story.meta.yaml; the dispatch endpoint and permission are VERIFY
+resources:
+  - ops_limits                                # the never_touch mirror (story_ids, name_patterns) re-checked before any write
+records: []                                   # the sweep's mark_applied writes ops_alert_proposals from this story's result
+
+ai:
+  agents: []                                  # no AI Agent action; no model decides anything here
+
+schedule_interval_seconds: 0                  # event-driven
+
+send_to_story:
+  access: team
+  timeout_seconds: 25
+
+inputs: [proposal_id, kind, story_id, action_id, type, value, approver, finding_id]
+result_fields: [status, change_request_id, message]
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export; never typed

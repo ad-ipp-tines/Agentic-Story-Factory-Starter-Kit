@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentic-story-factory/sdlc/agents/contracts/eval-curator.schema.json",
+  "title": "eval-curator — input requirements and output payload",
+  "description": "Spec: REPO-DESIGN.md §5.3.9, §4.4 (07 improve). Files: new or changed cases in sdlc/work/<slug>/evals/cases.yaml and their payloads in stories/<slug>/tests/cases/<case_id>.json (sanitised: documentation-range IPs, *.example.invalid, id 0). A regression case is never deleted without a reason recorded in the retro. After apply, retro.md front matter `curated` becomes true (set by the script, not by this agent).",
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "phase",
+        "inputs"
+      ],
+      "properties": {
+        "phase": {
+          "const": "improve"
+        },
+        "inputs": {
+          "type": "array",
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "retro"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "eval_cases"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "regression_rules"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "added",
+        "graduated",
+        "retired"
+      ],
+      "properties": {
+        "added": {
+          "type": "array",
+          "description": "New capability cases, one per failure mode or requested case in the retro",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "case_id",
+              "from_evidence_ref"
+            ],
+            "properties": {
+              "case_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+              },
+              "from_evidence_ref": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 200,
+                "description": "The retro line or evidence it came from (ops_findings:<record id>, an events.jsonl timestamp, a PR number)"
+              }
+            }
+          }
+        },
+        "graduated": {
+          "type": "array",
+          "description": "Capability case ids moved to suite: regression because they are stable (sdlc/evals/regression/README.md)",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          }
+        },
+        "retired": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "case_id",
+              "why"
+            ],
+            "properties": {
+              "case_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 300,
+                "description": "Must cite the retro section that records the reason"
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "description": "What ./scripts/sdlc apply validates the envelope's `payload` against: the full payload ($defs.payload) when the envelope verdict is done or changes_requested, or an empty object when it is needs_human or blocked (envelope.schema.json enforces which verdict allows which).",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 0
+        },
+        {
+          "$ref": "#/$defs/payload"
+        }
+      ]
+    }
+  }
+}

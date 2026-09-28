@@ -1,0 +1,6 @@
+{
+  "default": { "channel": "#ops-tines", "owner_team": "ops", "dev_router_recipient": "<set only in the DEV tenant's Resource — the router webhook URL carries a secret and is never committed; used by recipients_add_dev>" },
+  "_approvals": { "channel": "#ops-tines", "expiry_hours": 24 },
+  "_digest": { "channel": "#ops-tines", "weekday": 1 },
+  "example-enrich-ip": { "channel": "#sec-automation", "owner_team": "security-automation" }
+}

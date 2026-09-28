@@ -1,0 +1,530 @@
+# .github/workflows/ship.yml — the only path into production (DESIGN.md §3.4 "ship.yml"; the build brief calls
+# this workflow "deploy"). On every merge to main that touches stories/**:
+#
+#   plan  →  staging (optional: only when stories/_manifest.yaml defines a `staging` environment)
+#         →  production (GitHub environment `production` — its REQUIRED REVIEWERS are the manual approval
+#                        before the tenant is touched)
+#
+# In each target team, per changed story:  story version "pre-ship <sha>"  →  POST /api/v1/stories/import
+# {mode: versionReplace, draft_name: git-<sha>}  →  recipients + monitor_failures on the DRAFT  →  POST
+# …/change_request  →  the live-vs-draft view into the job summary  →  the ops router is notified.
+#
+# It NEVER promotes and never sends bypass_approval. A named person approves the change request in Tines
+# (and pushes), or promote.yml is run on a request whose status is already APPROVED. Tines change control is
+# the second, deterministic gate; the GitHub environment is the first.
+#
+# Prod runs from main only (the same rule as promote.yml and rollback.yml). A `new: true` slug is never CREATED in
+# prod (mode=new would make a live story with no change request): scripts/import_story.py refuses it unless the
+# workflow_dispatch input `new_in_prod_reason` carries a sentence, which is logged in the job summary. Preferred: a
+# person creates an empty, disabled, change-controlled shell story in the prod team [BY HAND], commits its id as
+# prod.story_id (removing `new: true`), and this workflow then imports into a draft + change request.
+#
+# Identity: a TEAM-scoped API key per environment (Editor role; can import, tag versions, set recipients and
+# open change requests; cannot approve). Secret NAMES come from stories/_manifest.yaml
+# (`environments.<env>.api_key_secret`) and are read with `secrets[<name>]`; store them ONLY as GitHub ENVIRONMENT
+# secrets on `staging` / `production` — never as repository secrets, which any workflow on any branch (a PR-triggered
+# review or eval run, or a new workflow file) could read, defeating the `production` environment's reviewers. Every
+# secret is an environment secret — never a file, never a manifest literal.
+#
+#   TINES_TENANT      host prefix only (the same tenant, different teams)
+#   TINES_API_KEY_*   the key named in the manifest for that environment
+#   OPS_ROUTER_URL    the ops-error-router webhook URL (carries a secret)
+#   OPS_EMAIL_DL      the ops distribution list (referenced by the manifest recipients)
+
+name: ship
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stories/**"
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "story slug(s), comma-separated"
+        required: true
+        type: string
+      env:
+        description: "target environment from stories/_manifest.yaml"
+        required: true
+        default: dev
+        type: choice
+        options: [dev, staging, prod]
+      new_in_prod_reason:
+        description: "EXPLICIT, LOGGED: only to let a `new: true` slug be CREATED in prod with mode=new (a live story, no change request). One sentence why. Prefer a by-hand shell story whose prod id is committed first."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write # the follow-up PR that commits ids returned by a mode=new import
+  pull-requests: write
+
+concurrency:
+  group: ship-${{ github.ref }}
+  cancel-in-progress: false # never cancel a half-finished import
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  plan:
+    name: plan (which slugs, which environments, which secret names)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      slugs: ${{ steps.plan.outputs.slugs }}
+      target_env: ${{ steps.plan.outputs.target_env }}
+      github_environment: ${{ steps.plan.outputs.github_environment }}
+      has_staging: ${{ steps.plan.outputs.has_staging }}
+      target_key_secret: ${{ steps.plan.outputs.target_key_secret }}
+      staging_key_secret: ${{ steps.plan.outputs.staging_key_secret }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2 # HEAD~1 for the changed-slug list
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet pyyaml
+      - name: Compute the plan
+        id: plan
+        env:
+          INPUT_SLUG: ${{ github.event.inputs.slug }}
+          INPUT_ENV: ${{ github.event.inputs.env }}
+          INPUT_NEW_IN_PROD_REASON: ${{ github.event.inputs.new_in_prod_reason }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, sys
+          import yaml
+
+          manifest = yaml.safe_load(pathlib.Path("stories/_manifest.yaml").read_text(encoding="utf-8")) or {}
+          envs = manifest.get("environments") or {}
+          stories = manifest.get("stories") or {}
+          event = os.environ.get("GITHUB_EVENT_NAME")
+
+          if event == "workflow_dispatch":
+              target = (os.environ.get("INPUT_ENV") or "prod").strip()
+              slugs = [s.strip() for s in (os.environ.get("INPUT_SLUG") or "").split(",") if s.strip()]
+              unknown = [s for s in slugs if s not in stories]
+              if unknown:
+                  print(f"::error::not in stories/_manifest.yaml: {', '.join(unknown)}"); sys.exit(1)
+          else:
+              target = "prod"
+              out = subprocess.run(["git", "diff", "--name-only", "HEAD~1", "HEAD", "--", "stories"],
+                                   capture_output=True, text=True, check=True).stdout.split()
+              slugs = sorted({p.split("/")[1] for p in out if p.count("/") >= 2 and not p.split("/")[1].startswith("_")})
+              skipped = [s for s in slugs if s not in stories or not pathlib.Path("stories", s, "story.json").exists()]
+              for s in skipped:
+                  print(f"::warning::{s}: changed but not shippable (no manifest entry or no story.json) — skipped")
+              slugs = [s for s in slugs if s not in skipped]
+
+          if target not in envs:
+              print(f"::error::environment '{target}' is not defined in stories/_manifest.yaml"); sys.exit(1)
+          if target == "prod" and os.environ.get("GITHUB_REF") != "refs/heads/main":
+              # the same rule as promote.yml and rollback.yml: the scripts and exports that reach prod are main's
+              print(f"::error::prod ships run from main only (this run is on {os.environ.get('GITHUB_REF')!r})"); sys.exit(1)
+          new_reason = " ".join((os.environ.get("INPUT_NEW_IN_PROD_REASON") or "").split())
+          if new_reason and (event != "workflow_dispatch" or target != "prod"):
+              print("::error::new_in_prod_reason applies only to a workflow_dispatch with env: prod"); sys.exit(1)
+          if new_reason and len(new_reason) < 10:
+              print("::error::new_in_prod_reason must be at least a sentence (it is logged in the job summary)"); sys.exit(1)
+
+          def key_secret(env_name, default):
+              return str((envs.get(env_name) or {}).get("api_key_secret") or default)
+
+          has_staging = bool(slugs) and target == "prod" and "staging" in envs
+          github_env = {"prod": "production"}.get(target, target)
+          outputs = {
+              "slugs": json.dumps(slugs),
+              "target_env": target,
+              "github_environment": github_env,
+              "has_staging": "true" if has_staging else "false",
+              "target_key_secret": key_secret(target, "TINES_API_KEY_PROD" if target == "prod" else "TINES_API_KEY"),
+              "staging_key_secret": key_secret("staging", "TINES_API_KEY_STAGING"),
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              for k, v in outputs.items():
+                  fh.write(f"{k}={v}\n")
+          print(json.dumps(outputs, indent=2))
+          if not slugs:
+              print("::notice::no shippable story changed; nothing to do")
+          PY
+
+  staging:
+    name: staging team (import as draft + change request)
+    needs: plan
+    if: needs.plan.outputs.has_staging == 'true' && needs.plan.outputs.slugs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.staging_key_secret] }}
+      TINES_ENV: staging
+      OPS_ROUTER_URL: ${{ secrets.OPS_ROUTER_URL }}
+      OPS_EMAIL_DL: ${{ secrets.OPS_EMAIL_DL }}
+      SLUGS: ${{ needs.plan.outputs.slugs }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+      - name: Ship to staging (a draft and a change request per story; nothing goes live here)
+        run: |
+          set -euo pipefail
+          mapfile -t slugs < <(jq -r '.[]' <<<"$SLUGS")
+          echo "## Staging — ${#slugs[@]} story(ies) from ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/ship_story.py "${slugs[@]}" --env "$TINES_ENV" --sha "$GITHUB_SHA" \
+            --source-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}" \
+            --rollback-ref "${GITHUB_SHA}~1" \
+            --summary-file "$GITHUB_STEP_SUMMARY" --results-file "$RUNNER_TEMP/ship-staging.jsonl"
+      - name: Follow-up PR for ids returned by a first (mode=new) import
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain stories/_manifest.yaml)" ]; then exit 0; fi
+          branch="manifest/ship-${TINES_ENV}-${GITHUB_SHA::7}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add stories/_manifest.yaml
+          git commit -m "manifest(${TINES_ENV}): record story ids created by ship ${GITHUB_SHA::7}"
+          git push --set-upstream origin "$branch"
+          gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" \
+            --title "manifest: record ${TINES_ENV} story ids from ship ${GITHUB_SHA::7}" \
+            --body "A first import (mode=new) created one or more stories in the ${TINES_ENV} team, with no change request. This PR commits the returned ids to stories/_manifest.yaml; from now on ${TINES_ENV} imports those slugs with versionReplace into a draft (\`new: true\` is ignored once an environment has an id, and it is removed by the PR that records the prod id). A merge that touches only stories/_manifest.yaml does not ship anything: after merging, run ship.yml by workflow_dispatch for these slugs. Opened by ship.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+
+  production:
+    name: production team (manual approval → import as draft → change request; never promotes)
+    needs: [plan, staging]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.slugs != '[]' &&
+      (needs.staging.result == 'success' || needs.staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # `production` for prod (set REQUIRED REVIEWERS on it — that is the manual approval gate); for a
+    # workflow_dispatch against dev or staging the environment of the same name is used.
+    environment: ${{ needs.plan.outputs.github_environment }}
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.target_key_secret] }}
+      TINES_ENV: ${{ needs.plan.outputs.target_env }}
+      # The scripts refuse prod without this; it is set only inside this environment-gated job.
+      TINES_ALLOW_PROD: ${{ needs.plan.outputs.target_env == 'prod' && '1' || '0' }}
+      OPS_ROUTER_URL: ${{ secrets.OPS_ROUTER_URL }}
+      OPS_EMAIL_DL: ${{ secrets.OPS_EMAIL_DL }}
+      SLUGS: ${{ needs.plan.outputs.slugs }}
+      # validated by the plan job (workflow_dispatch + env prod + a sentence); empty on every push
+      NEW_IN_PROD_REASON: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.new_in_prod_reason || '' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Ship (version → import as draft → recipients + monitor_failures → change request → view)
+        id: ship
+        run: |
+          set -euo pipefail
+          mapfile -t slugs < <(jq -r '.[]' <<<"$SLUGS")
+          echo "## ${TINES_ENV} — ${#slugs[@]} story(ies) from ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          extra=()
+          if [ -n "${NEW_IN_PROD_REASON:-}" ] && [ "$TINES_ENV" = "prod" ]; then
+            # a `new: true` slug may be CREATED in prod (mode=new, no change request) only with this logged input
+            echo "**new_in_prod_reason (dispatch input, by ${GITHUB_TRIGGERING_ACTOR:-$GITHUB_ACTOR}):** ${NEW_IN_PROD_REASON}" >> "$GITHUB_STEP_SUMMARY"
+            extra=(--allow-new-in-prod "$NEW_IN_PROD_REASON")
+          fi
+          python3 scripts/ship_story.py "${slugs[@]}" --env "$TINES_ENV" --sha "$GITHUB_SHA" \
+            --source-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}" \
+            --rollback-ref "${GITHUB_SHA}~1" \
+            --summary-file "$GITHUB_STEP_SUMMARY" --results-file "$RUNNER_TEMP/ship.jsonl" "${extra[@]}"
+          echo "results=$RUNNER_TEMP/ship.jsonl" >> "$GITHUB_OUTPUT"
+
+      - name: Commit comment with the change-request ids (no hostnames; the approver opens Tines)
+        if: always() && steps.ship.outputs.results != ''
+        uses: actions/github-script@v7
+        env:
+          RESULTS: ${{ steps.ship.outputs.results }}
+          TARGET_ENV: ${{ needs.plan.outputs.target_env }}
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync(process.env.RESULTS)) return;
+            const rows = fs.readFileSync(process.env.RESULTS, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
+            if (!rows.length) return;
+            const lines = [`**ship.yml → ${process.env.TARGET_ENV}** (run ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`, ''];
+            for (const r of rows) {
+              if (r.error) { lines.push(`- \`${r.slug}\`: **failed** — ${r.error}`); continue; }
+              if (r.mode === 'new') { lines.push(`- \`${r.slug}\`: first import created story \`${r.story_id}\`; a follow-up PR commits the id to the manifest`); continue; }
+              lines.push(`- \`${r.slug}\`: story \`${r.story_id}\`, draft \`${r.draft_id}\` (\`${r.draft_name}\`), change request \`${r.change_request_id ?? '?'}\` — awaiting a named approver in Tines`);
+            }
+            lines.push('', '_Nothing is live until a person approves the change request in Tines (or promote.yml runs on an APPROVED request). This job never promotes._');
+            await github.rest.repos.createCommitComment({ owner: context.repo.owner, repo: context.repo.repo, commit_sha: context.sha, body: lines.join('\n') });
+
+      - name: Follow-up PR for ids returned by a first (mode=new) import
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain stories/_manifest.yaml)" ]; then exit 0; fi
+          branch="manifest/ship-${TINES_ENV}-${GITHUB_SHA::7}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add stories/_manifest.yaml
+          git commit -m "manifest(${TINES_ENV}): record story ids created by ship ${GITHUB_SHA::7}"
+          git push --set-upstream origin "$branch"
+          # A PR opened with GITHUB_TOKEN does not itself trigger lint.yml/review.yml; push an empty commit
+          # from a person or use a GitHub App token if the checks must run on it.
+          gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" \
+            --title "manifest: record ${TINES_ENV} story ids from ship ${GITHUB_SHA::7}" \
+            --body "A first import (mode=new) created one or more stories in the ${TINES_ENV} team, with no change request. This PR commits the returned ids to stories/_manifest.yaml and, for prod, already removes \`new: true\` from those slugs (a recorded id always wins: the next import is a versionReplace into a draft). Append the production ids to policies/never-touch.yml story_ids in the same PR (ship.yml and rollback.yml still reach them, but only inside their own draft). A merge that touches only stories/_manifest.yaml does not trigger a ship: after merging, run ship.yml by workflow_dispatch (slug, env: prod) — that ship opens the change requests. Opened by ship.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+
+      # ---- G5 evidence (REPO-DESIGN.md §3.3 row 20), part 1 of 3 ------------------------------------------------------
+      # Hand the per-story results (ids only: story, draft, change request, mode) to the g5-evidence job, which reads the
+      # release with the prod VIEWER key in its own environment. Nothing here changes; the evidence is computed below.
+      - name: G5 evidence — hand the ship results to the evidence job
+        if: always() && steps.ship.outputs.results != '' && needs.plan.outputs.target_env == 'prod'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ship-results-${{ github.run_id }}
+          path: ${{ steps.ship.outputs.results }}
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # ---- G5 evidence (REPO-DESIGN.md §3.3 row 20, §4.4 05 ship, sdlc/gates/G5-change-request-approval.md) ---------------
+  # G5 evidence is computed in CI, never in the editor (the IDE key is dev-only; the scripts refuse prod outside CI).
+  # With the prod Viewer key (TINES_API_KEY_PROD_READ, environment prod-read) this job reads what the production job did
+  # and writes sdlc/work/<slug>/ship.md + one event per story through `python3 scripts/sdlc_state.py ship-evidence`:
+  #   first ship (mode: new)  → G5a approved_and_imported — the `production` environment's required reviewer released
+  #                             the import (change control on the new story is switched on [BY HAND]). The approval is
+  #                             READ, never assumed: this run's deployment approvals (GET …/actions/runs/{run_id}/approvals)
+  #                             must hold an `approved` review of `production`, and the environment's required reviewers
+  #                             (GET …/environments/production) must be exactly one team — the G5a team in
+  #                             sdlc/gates/approvers.yaml — with no individuals; that team is recorded. Otherwise it FAILS
+  #                             and nothing is recorded (REPO-DESIGN.md §7.10)
+  #   later ship              → G5b pending — the change request ship.yml opened, with its status as `cr-view` reports
+  #                             it; the decision is a named approver's in Tines, recorded later by promote.yml (or by
+  #                             promote.yml dispatched with evidence_only after a push in Tines)
+  # Stories the lifecycle does not track (no tracker row, no sdlc/work/<slug>/) are skipped. A G5a REJECTION never
+  # reaches this job (the reviewer's rejection stops the production job before the import): record it with promote.yml
+  # dispatched with evidence_only and a rejection_note.
+  g5-evidence:
+    name: G5 evidence (read the release with the prod Viewer key; write ship.md)
+    needs: [plan, production]
+    if: >-
+      always() &&
+      needs.plan.outputs.target_env == 'prod' &&
+      needs.plan.outputs.slugs != '[]' &&
+      (needs.production.result == 'success' || needs.production.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod-read
+    permissions:
+      contents: read
+      actions: read # G5a: this run's deployment approvals and the production environment's required reviewers
+    outputs:
+      count: ${{ steps.evidence.outputs.count }}
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets.TINES_API_KEY_PROD_READ }} # Viewer role: it only reads (cr-view)
+      TINES_ENV: prod
+      TINES_ALLOW_PROD: "1" # the scripts' prod guard; this key cannot write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Fetch the ship results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ship-results-${{ github.run_id }}
+          path: ${{ runner.temp }}/ship-results
+
+      - name: G5 evidence — write ship.md and its event per story
+        id: evidence
+        env:
+          RESULTS_DIR: ${{ runner.temp }}/ship-results
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }} # read-only here (actions: read): the G5a approval and the environment's reviewers
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, sys, time
+          import yaml
+
+          def fail(msg):
+              print(f"::error title=g5-evidence::{msg}"); sys.exit(1)
+
+          results_dir = pathlib.Path(os.environ["RESULTS_DIR"])
+          rows = []
+          for f in sorted(results_dir.glob("*.jsonl")) if results_dir.is_dir() else []:
+              rows += [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
+          approvers = yaml.safe_load(pathlib.Path("sdlc/gates/approvers.yaml").read_text(encoding="utf-8")) or {}
+
+          def role(gate):
+              teams = (approvers.get("gates") or {}).get(gate, {}).get("teams") or []
+              handle = (approvers.get("teams") or {}).get(teams[0], teams[0]) if teams else "security-platform"
+              return str(handle).split("/")[-1]
+
+          def gh_api(path):
+              p = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+              if p.returncode != 0:
+                  fail(f"G5a evidence: GET {path} failed ({(p.stderr.strip().splitlines() or ['?'])[-1][:200]}) — nothing recorded")
+              try:
+                  return json.loads(p.stdout or "null")
+              except json.JSONDecodeError:
+                  fail(f"G5a evidence: GET {path} did not return JSON — nothing recorded")
+
+          def g5a_team():
+              """The team whose member released this run's `production` job — read from GitHub, never assumed (fails closed)."""
+              repo = os.environ["GITHUB_REPOSITORY"]
+              reviews = gh_api(f"repos/{repo}/actions/runs/{os.environ['RUN_ID']}/approvals") or []
+              approved = [a for a in reviews if isinstance(a, dict) and str(a.get("state")).lower() == "approved"
+                          and any(isinstance(e, dict) and e.get("name") == "production" for e in (a.get("environments") or []))]
+              if not approved:
+                  fail("no approval of the `production` environment is recorded for this run: G5a is its required reviewer's "
+                       "release (set required reviewers on `production`) — nothing recorded")
+              env = gh_api(f"repos/{repo}/environments/production") or {}
+              reviewers = [r for rule in (env.get("protection_rules") or []) if isinstance(rule, dict) and rule.get("type") == "required_reviewers"
+                           for r in (rule.get("reviewers") or []) if isinstance(r, dict)]
+              teams = {str((r.get("reviewer") or {}).get("slug") or "") for r in reviewers if r.get("type") == "Team"}
+              individuals = [r for r in reviewers if r.get("type") != "Team"]
+              allowed = {str((approvers.get("teams") or {}).get(t, t)).split("/")[-1]
+                         for t in (((approvers.get("gates") or {}).get("G5a") or {}).get("teams") or [])}
+              if individuals or len(teams) != 1 or not (teams <= allowed):
+                  fail(f"the `production` environment's required reviewers must be exactly one team, the G5a team in "
+                       f"sdlc/gates/approvers.yaml ({', '.join(sorted(allowed)) or 'none listed'}), and no individuals; found teams "
+                       f"{sorted(teams)} and {len(individuals)} individual reviewer(s) — the approver's team cannot be told, so nothing is recorded")
+              return next(iter(teams))
+
+          g5a_role = g5a_team() if any(r.get("mode") == "new" and not r.get("error") and not r.get("dry_run") for r in rows) else None
+
+          sha = os.environ["GITHUB_SHA"]
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          written = 0
+          for r in rows:
+              slug = r.get("slug")
+              if not slug or r.get("error") or r.get("dry_run"):
+                  print(f"::notice::{slug}: not shipped ({r.get('error') or 'dry run'}) — no evidence")
+                  continue
+              common = ["python3", "scripts/sdlc_state.py", "ship-evidence", slug, "--sha", sha, "--workflow", "ship.yml",
+                        "--workflow-run", os.environ["RUN_ID"], "--decided-at", now]
+              if r.get("mode") == "new":
+                  cmd = common + ["--gate", "G5a", "--decision", "approved_and_imported", "--approver-role", str(g5a_role),
+                                  "--prod-story-id", str(r.get("story_id") or 0)]
+              else:
+                  status = r.get("change_request_status") or ""
+                  if r.get("draft_id"):
+                      p = subprocess.run(["./scripts/tines", "cr-view", slug, "--env", "prod", "--draft", str(r["draft_id"]), "--json"],
+                                         capture_output=True, text=True)
+                      if p.returncode == 0:
+                          view = json.loads(p.stdout or "{}")
+                          cr = view.get("change_request") if isinstance(view.get("change_request"), dict) else {}
+                          status = str(cr.get("status") or view.get("status") or status)
+                      else:
+                          print(f"::warning::{slug}: cr-view failed with the Viewer key — the status is ship.yml's own (VERIFY K45)")
+                  cmd = common + ["--gate", "G5b", "--decision", "pending", "--approver-role", role("G5b"),
+                                  "--change-request-id", str(r.get("change_request_id") or ""), "--cr-status", str(status),
+                                  "--draft-name", str(r.get("draft_name") or ""), "--version-name", str(r.get("version") or ""),
+                                  "--prod-story-id", str(r.get("story_id") or 0)]
+              p = subprocess.run(cmd, capture_output=True, text=True)
+              sys.stdout.write(p.stdout); sys.stderr.write(p.stderr)
+              if p.returncode != 0:
+                  print(f"::error::{slug}: the evidence could not be written"); sys.exit(1)
+              if "nothing written" not in p.stdout:
+                  written += 1
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"count={written}\n")
+          PY
+          # only the evidence files (touch set scripts.ship-evidence): ship.md and events.jsonl per story
+          git status --porcelain -uall -- 'sdlc/work/*/ship.md' 'sdlc/work/*/events.jsonl' | awk '{print $NF}' > "$RUNNER_TEMP/g5-files.txt"
+          tar -czf "$RUNNER_TEMP/g5-evidence.tgz" --files-from "$RUNNER_TEMP/g5-files.txt"
+
+      - name: Hand the evidence to the PR job
+        if: steps.evidence.outputs.count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: g5-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/g5-evidence.tgz
+          retention-days: 3
+
+  # Part 3 of 3: one PR per story on tracker/ship-<slug>-<sha7> (touch set `tracker`), opened with the tracker-bot GitHub
+  # App token so sdlc.yml — the one required check — runs on it (a PR opened with GITHUB_TOKEN starts no workflows). The
+  # PR needs an approving review from the G5 team in sdlc/gates/approvers.yaml; after it merges,
+  # `./scripts/sdlc advance <slug>` reads ship.md on main.
+  g5-evidence-pr:
+    name: G5 evidence (tracker/ship-<slug>-<sha7> PRs, tracker-bot token)
+    needs: g5-evidence
+    if: always() && needs.g5-evidence.result == 'success' && needs.g5-evidence.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: tracker
+    permissions:
+      contents: read # branches and PRs are written with the tracker-bot App token, never GITHUB_TOKEN
+    steps:
+      - name: Mint the tracker-bot token
+        id: bot
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TRACKER_BOT_APP_ID }}
+          private-key: ${{ secrets.TRACKER_BOT_PRIVATE_KEY }}
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: g5-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/g5
+      - name: Open one evidence PR per story
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          set -euo pipefail
+          base_sha=$(git rev-parse HEAD)
+          mkdir -p "$RUNNER_TEMP/g5/x"
+          tar -xzf "$RUNNER_TEMP/g5/g5-evidence.tgz" -C "$RUNNER_TEMP/g5/x"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for dir in "$RUNNER_TEMP"/g5/x/sdlc/work/*/; do
+            [ -d "$dir" ] || continue
+            slug=$(basename "$dir")
+            branch="tracker/ship-${slug}-${GITHUB_SHA::7}"
+            git switch --quiet -C "$branch" "$base_sha"
+            mkdir -p "sdlc/work/${slug}"
+            cp "$dir"ship.md "sdlc/work/${slug}/ship.md"
+            [ -f "$dir"events.jsonl ] && cp "$dir"events.jsonl "sdlc/work/${slug}/events.jsonl"
+            git add -- "sdlc/work/${slug}/ship.md" "sdlc/work/${slug}/events.jsonl"
+            if git diff --cached --quiet; then git switch --quiet --detach "$base_sha"; continue; fi
+            gate=$(sed -n 's/^gate: *//p' "sdlc/work/${slug}/ship.md" | head -n1)
+            decision=$(sed -n 's/^decision: *//p' "sdlc/work/${slug}/ship.md" | head -n1)
+            git commit --quiet -m "ship(${slug}): G5 evidence ${gate} ${decision} (${GITHUB_SHA::7})"
+            git push --quiet --force "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+            {
+              echo "G5 evidence for \`${slug}\`: **${gate} ${decision}** at \`${GITHUB_SHA::7}\`, written by ship.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (REPO-DESIGN.md §3.3 row 20)."
+              echo
+              echo "It needs an approving review from the ${gate} team in \`sdlc/gates/approvers.yaml\`. After it merges, \`./scripts/sdlc advance ${slug}\` reads \`sdlc/work/${slug}/ship.md\` on main."
+            } > "$RUNNER_TEMP/body-${slug}.md"
+            if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' < /dev/null | grep -q .; then
+              gh pr create --base main --head "$branch" --title "ship(${slug}): G5 evidence ${gate} ${decision}" \
+                --body-file "$RUNNER_TEMP/body-${slug}.md" < /dev/null
+            fi
+            git switch --quiet --detach "$base_sha"
+          done

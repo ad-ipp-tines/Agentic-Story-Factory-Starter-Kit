@@ -1,0 +1,123 @@
+# stories/_manifest.yaml — the environment map and the slug → story_id map.
+# Spec: ../DESIGN.md §3.6. This is the ONLY place environment differences live.
+# No secrets, no hostnames, no channel names, no addresses: ${VARS} are resolved
+# at run time from .env (local) or GitHub environment secrets (CI).
+#
+# Rules
+# - Story names must be identical in every environment: POST /api/v1/stories/import
+#   with mode: versionReplace matches the existing story BY NAME.
+# - ids are 0 until known. The DEV id is recorded here by hand right after the builder
+#   creates the story through /mcp (nothing else writes it; /tines-export stops on 0).
+#   A slug with `new: true` has no PROD id yet: preferably a person creates an empty,
+#   disabled, change-controlled shell story in the prod team [BY HAND] and commits its
+#   id (removing `new: true`). import_story.py refuses mode: new in prod unless ship.yml
+#   is dispatched with an explicit, logged `new_in_prod_reason`; ship.yml then opens the
+#   follow-up PR that commits the returned id here.
+# - tier: production ⇒ change control required and monitoring enforced by ship.yml
+#   (monitor_failures + recipients from the environment's `recipients`).
+# - locked_slugs receive `locked: true` via `./scripts/tines story-update` after ship.
+# - Two environments are required (a dev team and a prod team); `staging` is optional
+#   and takes the same shape (DESIGN.md §2.3 row 1).
+# - The router webhook URL carries a secret → ${OPS_ROUTER_URL} only, never a literal.
+
+environments:
+  dev:
+    team_id: 0                                  # the dedicated dev TEAM (never personal space)
+    folder_id: 0
+    api_key_secret: TINES_API_KEY               # TEAM-scoped key, Editor role, dev team
+    recipients: ["${OPS_ROUTER_URL}"]
+  prod:
+    team_id: 0                                  # the prod team
+    folder_id: 0
+    api_key_secret: TINES_API_KEY_PROD          # TEAM-scoped key, Editor role, prod team (CI-prod identity; cannot approve)
+    read_key_secret: TINES_API_KEY_PROD_READ    # Viewer-role team key for drift.yml and the monitor's lookups (read-only by role — VERIFY)
+    recipients: ["${OPS_ROUTER_URL}", "${OPS_EMAIL_DL}"]
+    locked_slugs: [ops-error-router, ops-story-health-monitor, ops-tools-server,
+                   ops-get-error-logs, ops-get-story-export, ops-get-live-activity, ops-get-recent-runs, ops-get-ai-usage,
+                   ops-apply-alert-rule, ops-request-approval, kit-factory]
+  # staging:                                    # optional third environment, same shape as prod
+  #   team_id: 0
+  #   folder_id: 0
+  #   api_key_secret: TINES_API_KEY_STAGING
+  #   recipients: ["${OPS_ROUTER_URL}"]
+
+stories:
+  example-enrich-ip:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: production
+    owner: security-automation                  # a role, never a person
+    new: true                                   # remove after the first ship commits the ids
+  ops-error-router:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  ops-story-health-monitor:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  ops-tools-server:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  # The sweep's sub-stories — [OPS] 11–15 (its five read tools, also exposed by ops-tools-server), [OPS] 16 (the only
+  # place tines_api_ops writes to production) and [OPS] 17 (the approval request). Each is its own folder, slug and PR,
+  # and each ships BEFORE ops-story-health-monitor and ops-tools-server.
+  ops-get-error-logs:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  ops-get-story-export:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  ops-get-live-activity:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  ops-get-recent-runs:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  ops-get-ai-usage:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  ops-apply-alert-rule:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  ops-request-approval:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: ops
+    new: true
+  # [KIT] 00 · Run the story factory (stories/kit-factory/; REPO-DESIGN.md §3.3 row 12, §7.1). NEVER `new: true`: the
+  # kit is imported BY HAND into the prod team (which is the ops team), and the setup-report PR (kit.yml →
+  # ./scripts/kit apply-config) commits its live id into prod.story_id, so ship.yml changes that copy through
+  # versionReplace instead of creating a second [KIT] 00. The dev id is recorded by hand when the dev copy exists.
+  kit-factory:
+    dev:  { story_id: 0 }
+    prod: { story_id: 0 }
+    tier: ops
+    owner: platform
+    new: false

@@ -1,0 +1,43 @@
+# tests/expectations.yaml — [SEC] 01 · Enrich IP (sub).
+# The build skill posts tests/sample-event.json to the entry action (`?draft=<name>` when change control is on),
+# reads the run (GET /api/v1/stories/{id}/runs, /runs/{guid}) and asserts the block below.
+# 203.0.113.0/24 is a documentation range and must NOT be in the never_block Resource, or the happy path is refused.
+
+entry_action: receive_ip
+expected_actions_fired_min: 10                # receive_ip normalize is_valid_input is_not_protected check_cache cache_miss lookup_virustotal lookup_abuseipdb verdict write_cache result
+no_error_logs_on:
+  - receive_ip
+  - normalize
+  - check_cache
+  - lookup_virustotal
+  - lookup_abuseipdb
+  - verdict
+  - write_cache
+  - result
+result_fields:
+  - verdict
+  - score
+  - sources
+  - summary
+must_not_fire:
+  - error
+  - refused
+  - cache_hit                                 # first run: cold cache
+
+# Additional runs the build skill performs after the happy path; each is a separate event.
+variants:
+  cached_second_run:
+    event: { ip: "203.0.113.10", requester: "builder@example.invalid", source: "test" }
+    must_fire: [check_cache, cache_hit, result]
+    must_not_fire: [lookup_virustotal, lookup_abuseipdb, write_cache, error]
+    result_field_values: { sources: ["cache"] }
+  refused_private_range:
+    event: { ip: "10.0.0.5", requester: "builder@example.invalid", source: "test" }
+    must_fire: [normalize, is_valid_input, is_protected, refused]
+    must_not_fire: [check_cache, lookup_virustotal, lookup_abuseipdb, result, error]
+    result_field_values: { status: "refused", reason: "protected range" }
+  invalid_input:
+    event: { ip: "not-an-ip", requester: "builder@example.invalid", source: "test" }
+    must_fire: [normalize, is_invalid_input, error]
+    must_not_fire: [is_protected, check_cache, lookup_virustotal, lookup_abuseipdb, result]
+    result_field_values: { status: "error", error_category: "validation", retryable: false }

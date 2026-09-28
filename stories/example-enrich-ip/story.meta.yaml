@@ -1,0 +1,36 @@
+# story.meta.yaml — [SEC] 01 · Enrich IP (sub). Spec: ../../DESIGN.md §3.6.
+# Names only; never a value, never a hostname, never a person.
+
+slug: example-enrich-ip
+name: "[SEC] 01 · Enrich IP (sub)"           # must equal story.json name
+mode: sub-story                               # callable via Send to Story; a Mode 3 tool; a Mode 4 tool
+owner_team: SEC                               # the [SEC] prefix; owner role: security-automation
+tier: production
+change_control: required
+
+monitoring:
+  monitor_failures: true
+  recipients: manifest                        # router webhook + email DL, applied by ship.yml
+  no_events_watchdog: { action: "receive_ip", seconds: 7200 }
+
+keep_events_for_days: 30                      # story.json keep_events_for: 2592000
+
+credentials:
+  - virustotal_api                            # Text; allowed_hosts = the VirusTotal API host; Workbench access off
+  - abuseipdb_api                             # Text; allowed_hosts = the AbuseIPDB API host; Workbench access off
+resources:
+  - never_block                               # JSON array of CIDRs; the guard before any lookup
+records:
+  - ioc_cache                                 # ip, verdict, score, sources, summary, expires_at, requester — [BY HAND]
+
+ai:
+  agents: []                                  # no AI Agent action; no credits; no model in the loop
+
+schedule_interval_seconds: 0                  # event-driven (called via Send to Story)
+
+send_to_story:
+  access: team
+  timeout_seconds: 25                         # under the 30 s Mode 4 tool ceiling
+  library_seed: 87626                         # Analyze an IP in many services at once
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export

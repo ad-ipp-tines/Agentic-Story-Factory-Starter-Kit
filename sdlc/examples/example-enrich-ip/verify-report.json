@@ -1,0 +1,84 @@
+{
+  "report_version": 1,
+  "story_key": "example-enrich-ip",
+  "attempt": 1,
+  "sha": "0000000",
+  "generated_at": "2026-10-05T14:25:00Z",
+  "verdict": "pass",
+  "sources": [
+    {
+      "source": "tines-reviewer",
+      "status": "pass",
+      "out_ref": ".sdlc/out/example-enrich-ip/tines-reviewer-1.json",
+      "findings_count": 1
+    },
+    {
+      "source": "security-reviewer",
+      "status": "pass",
+      "out_ref": ".sdlc/out/example-enrich-ip/security-reviewer-1.json",
+      "findings_count": 1,
+      "reason": "Dispatched: the contract names egress hosts and credentials (dispatch-rules.yaml, conditional)."
+    },
+    {
+      "source": "story-qa",
+      "status": "pass",
+      "out_ref": ".sdlc/out/example-enrich-ip/story-qa-1.json",
+      "findings_count": 0
+    },
+    {
+      "source": "cost-checks",
+      "status": "pass",
+      "findings_count": 0,
+      "reason": "./scripts/sdlc estimate example-enrich-ip --check"
+    }
+  ],
+  "findings": [
+    {
+      "source": "tines-reviewer",
+      "path": "stories/example-enrich-ip/story.json#lookup_virustotal",
+      "rule": "expected_status_excluded",
+      "severity": "minor",
+      "message": "An empty lookup's not-found status is not excluded from error logs on lookup_virustotal; confirm the vendor's status for an unknown address from a real run before excluding it.",
+      "suggested_fix": "After one real run, exclude the vendor's not-found status from log_error_on_status and branch on it in verdict.",
+      "suggested_prompt": "/tines-build-story example-enrich-ip \"In [SEC] 01 · Enrich IP (sub), on the HTTP Request action lookup_virustotal, exclude the not-found status observed in the last run from error logs, then validate.\""
+    },
+    {
+      "source": "security-reviewer",
+      "path": "stories/example-enrich-ip/story.meta.yaml",
+      "rule": "sec.3",
+      "severity": "info",
+      "message": "Both egress hosts are in the contract as placeholders; replace them with the hosts the two templates call once a real export shows them."
+    }
+  ],
+  "cost_checks": {
+    "results": [
+      { "id": "cost.4", "result": "PASS", "detail": "no AI Agent action" },
+      { "id": "cost.5", "result": "PASS", "detail": "event-driven (schedule_interval_seconds 0); no schedule implies runs" },
+      { "id": "cost.6", "result": "PASS", "detail": "0 credits a month" },
+      { "id": "cost.7", "result": "PASS", "detail": "provider none" },
+      { "id": "cost.8", "result": "PASS", "detail": "no AI Agent action to pre-filter" },
+      { "id": "cost.9", "result": "PASS", "detail": "no model-graded case; the eval run costs 0 credits" }
+    ],
+    "projection": {
+      "runs_per_day": 50,
+      "credits_per_run_observed": 0,
+      "monthly_credits": 0,
+      "provider": "none",
+      "billed_cost_note": "not applicable: no model in the loop"
+    },
+    "budget_fit": {
+      "team": "ops",
+      "ceiling": 300,
+      "committed": 0,
+      "remaining_after": 300
+    }
+  },
+  "qa": {
+    "cases_total": 4,
+    "cases_passed": 4,
+    "pass_k": { "k": 3, "value": null },
+    "failing_cases": [],
+    "credits_observed": []
+  },
+  "rework_package_ref": null
+}

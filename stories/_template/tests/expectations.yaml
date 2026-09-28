@@ -1,0 +1,19 @@
+# tests/expectations.yaml — what a run on tests/sample-event.json must produce.
+# The build skill posts the sample to the entry action (`?draft=<name>` when change control is on),
+# reads the run's events (GET /api/v1/stories/{id}/runs, /runs/{guid}) and asserts these.
+# Spec: ../../DESIGN.md §3.6.
+
+entry_action: <entry action name>             # the Webhook / Send to Story / scheduled action that receives the sample
+expected_actions_fired_min: 3                 # at least this many actions must emit an event on the happy path
+no_error_logs_on:                             # actions that must have zero level-4 logs for this run
+  - <entry action name>
+  - normalize
+  - result
+result_fields:                                # the keys the `result` Event Transform must emit, exactly
+  - verdict
+  - score
+  - sources
+  - summary
+must_not_fire:                                # actions that must NOT emit on the happy path
+  - error
+  - refused

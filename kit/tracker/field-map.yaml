@@ -1,0 +1,130 @@
+# kit/tracker/field-map.yaml — YAML key ↔ Record field ↔ result_type ↔ owner side.
+#
+# Spec: REPO-DESIGN.md §8.3 (this file), §6.5 (field ownership, Flow 1, Flow 2, events), §8.1 (the Record types).
+#
+# Readers
+#   scripts/kit_tracker.py   tracker-json (YAML → Record-field JSON for section B), tracker-fold (outbox → YAML),
+#                            the snapshot comparison; it refuses to run when this file and the schemas disagree
+#   ./scripts/sdlc check     field_map_complete: every property of kit/tracker/backlog.schema.json and
+#                            milestones.schema.json, every field of kit/records/*.record-type.json and every key of
+#                            sdlc/observability/event.schema.json appears here exactly once
+#
+# Columns
+#   yaml         the key in the repo file; dotted for nested maps (credit_estimate.monthly); null = not in git
+#   record       the Record field name (kit/records/<type>.record-type.json); null = not in Records
+#   result_type  the Record field type: TEXT (512 characters), NUMBER, TIMESTAMP (UTC), BOOLEAN, TEXT_ENUM, JSON,
+#                ARTIFACT (large text; 15,000 vs 100k characters is CONFLICT K29); for a git-only key, the YAML type
+#   owner        who AUTHORS the value (the three sides of §6.5):
+#                  git         written only by ./scripts/sdlc and PR merges; reaches Records by Flow 1; a Tines-side
+#                              change to it is ignored by tracker-fold (and reported), except when the row is new
+#                  tines       written in Tines (Pages, App endpoints, runtime specialists) with pending_repo_sync:
+#                              true; reaches git by Flow 2 (tracker-fold → a PR a human merges); Flow 1 still mirrors
+#                              git's value back once the merge lands
+#                  tines-only  operational bookkeeping in Tines; never mirrored to git (yaml: null)
+#   tines_via    (phase, status, open_gate only) git owns them, except for the Tines-side gates listed here, whose
+#                decision tracker-fold accepts only with the matching gate_decision (or D9 transition) event
+#   empty        how an empty repo value is sent to Records: null (the Record field is left unset)
+#   transform    list_to_markdown (a YAML list ↔ Markdown bullet lines) · refs_to_ref (a list ↔ one text line,
+#                joined with "; ") · none_as_null (the Record's TEXT_ENUM value `none` ↔ YAML null)
+#   file         for an ARTIFACT that lands as a file instead of a YAML key
+#
+# Timestamps are UTC with a Z suffix on both sides (Records drop offsets). Emails never reach git: `actor_ref`
+# is tines-only, and the outbox returns roles.
+
+version: 1
+
+record_types:
+
+  sdlc_backlog:
+    record_type_file: kit/records/sdlc_backlog.record-type.json
+    repo_file: kit/tracker/backlog.yaml
+    schema_file: kit/tracker/backlog.schema.json
+    list_key: stories
+    key: { yaml: key, record: story_key }            # the upsert key; generated once, never changed
+    fields:
+      - { yaml: key,                     record: story_key,               result_type: TEXT,      owner: git }
+      - { yaml: title,                   record: title,                   result_type: TEXT,      owner: git }
+      - { yaml: use_case,                record: use_case,                result_type: ARTIFACT,  owner: git }
+      - { yaml: library_seed_id,         record: library_seed_id,         result_type: NUMBER,    owner: git }
+      - { yaml: mode,                    record: mode,                    result_type: TEXT_ENUM, owner: git }
+      - { yaml: owner,                   record: owner,                   result_type: TEXT,      owner: tines }
+      - { yaml: tier,                    record: tier,                    result_type: TEXT_ENUM, owner: git }
+      - { yaml: phase,                   record: phase,                   result_type: TEXT_ENUM, owner: git, tines_via: [G0, G6, G7, GB, GX, improve_trigger] }
+      - { yaml: status,                  record: status,                  result_type: TEXT_ENUM, owner: git, tines_via: [G0, G6, G7, GB, GX, improve_trigger] }
+      - { yaml: open_gate,               record: open_gate,               result_type: TEXT_ENUM, owner: git, tines_via: [G0, G6, G7, GB, GX, improve_trigger] }
+      - { yaml: attempt,                 record: attempt,                 result_type: NUMBER,    owner: git }
+      - { yaml: target_date,             record: target_date,             result_type: TIMESTAMP, owner: tines, empty: null }
+      - { yaml: credit_estimate.monthly, record: credit_estimate_monthly, result_type: NUMBER,    owner: git }
+      - { yaml: credit_estimate.basis,   record: credit_estimate_basis,   result_type: TEXT,      owner: git }
+      - { yaml: provider,                record: provider,                result_type: TEXT_ENUM, owner: git }
+      - { yaml: links.design_pr,         record: design_pr,               result_type: TEXT,      owner: git }
+      - { yaml: links.build_pr,          record: build_pr,                result_type: TEXT,      owner: git }
+      - { yaml: links.change_request_id, record: change_request_id,       result_type: TEXT,      owner: git }
+      - { yaml: prod_story_id,           record: prod_story_id,           result_type: NUMBER,    owner: git }
+      - { yaml: live_since,              record: live_since,              result_type: TIMESTAMP, owner: git, empty: null }
+      - { yaml: rev,                     record: rev,                     result_type: NUMBER,    owner: git }
+      - { yaml: null,                    record: pending_repo_sync,       result_type: BOOLEAN,   owner: tines-only }
+      - { yaml: null,                    record: pending_base_rev,        result_type: NUMBER,    owner: tines-only }
+      - { yaml: null,                    record: outbox_seq,              result_type: NUMBER,    owner: tines-only }
+      - { yaml: null,                    record: acked_seq,               result_type: NUMBER,    owner: tines-only }
+      - { yaml: null,                    record: specialist_due,          result_type: TEXT_ENUM, owner: tines-only }
+      - { yaml: null,                    record: specialist_status,       result_type: TEXT_ENUM, owner: tines-only }
+      - { yaml: null,                    record: proposal,                result_type: JSON,      owner: tines-only }
+      - { yaml: null,                    record: brief,                   result_type: ARTIFACT,  owner: tines, file: "sdlc/work/<slug>/intake.md" }
+      - { yaml: null,                    record: retro,                   result_type: ARTIFACT,  owner: tines, file: "sdlc/work/<slug>/retro.md" }
+      - { yaml: null,                    record: last_actor,              result_type: TEXT,      owner: tines-only }
+      - { yaml: null,                    record: last_transition_at,      result_type: TIMESTAMP, owner: tines-only }
+    # Not a field: the file-level keys `version` and `wip_limit_per_owner` (git only; wip_limit_per_owner mirrors
+    # state-machine.yaml caps.wip_limit_per_owner).
+    file_keys: [version, wip_limit_per_owner, stories]
+
+  sdlc_milestones:
+    record_type_file: kit/records/sdlc_milestones.record-type.json
+    repo_file: kit/tracker/milestones.yaml
+    schema_file: kit/tracker/milestones.schema.json
+    list_key: milestones
+    key: { yaml: id, record: milestone_id }
+    fields:
+      - { yaml: id,              record: milestone_id,      result_type: TEXT_ENUM, owner: git }
+      - { yaml: title,           record: title,             result_type: TEXT,      owner: git }
+      - { yaml: criteria,        record: criteria,          result_type: ARTIFACT,  owner: git, transform: list_to_markdown }
+      - { yaml: status,          record: status,            result_type: TEXT_ENUM, owner: tines }
+      - { yaml: due_date,        record: due_date,          result_type: TIMESTAMP, owner: tines, empty: null }
+      - { yaml: evidence_ref,    record: evidence_ref,      result_type: TEXT,      owner: tines }
+      - { yaml: owner,           record: owner,             result_type: TEXT,      owner: tines }
+      - { yaml: rev,             record: rev,               result_type: NUMBER,    owner: git }
+      - { yaml: due_offset_days, record: null,              result_type: integer,   owner: git }     # the catalog offset; A22 and apply-config compute due_date from it
+      - { yaml: null,            record: pending_repo_sync, result_type: BOOLEAN,   owner: tines-only }
+    file_keys: [version, milestones]
+
+  sdlc_events:
+    record_type_file: kit/records/sdlc_events.record-type.json
+    repo_file: "sdlc/work/<slug>/events.jsonl"
+    schema_file: sdlc/observability/event.schema.json
+    list_key: null                                   # one JSON object per line
+    key: null                                        # append-only; tracker-fold dedupes on (ts, event_type, gate, decision, agent)
+    fields:
+      - { yaml: ts,             record: null,           result_type: string,    owner: git }    # the Record's own creation time (retention column CREATED_AT) is the Tines-side ts
+      - { yaml: story_key,      record: story_key,      result_type: TEXT,      owner: git }
+      - { yaml: event_type,     record: event_type,     result_type: TEXT_ENUM, owner: git }
+      - { yaml: from_phase,     record: from_phase,     result_type: TEXT_ENUM, owner: git, transform: none_as_null }
+      - { yaml: to_phase,       record: to_phase,       result_type: TEXT_ENUM, owner: git, transform: none_as_null }
+      - { yaml: gate,           record: gate,           result_type: TEXT_ENUM, owner: git, transform: none_as_null }
+      - { yaml: decision,       record: decision,       result_type: TEXT,      owner: git }
+      - { yaml: actor,          record: actor,          result_type: TEXT,      owner: git }    # always a role
+      - { yaml: null,           record: actor_ref,      result_type: TEXT,      owner: tines-only }   # the approver's email: in-tenant audit only, never sent to git
+      - { yaml: actor_kind,     record: actor_kind,     result_type: TEXT_ENUM, owner: git }
+      - { yaml: agent,          record: agent,          result_type: TEXT,      owner: git }
+      - { yaml: model_tier,     record: null,           result_type: string,    owner: git }    # IDE tiers; Tines-side runs fold as fast (pinned)
+      - { yaml: model_reported, record: model,          result_type: TEXT,      owner: git }
+      - { yaml: turns,          record: null,           result_type: integer,   owner: git }
+      - { yaml: credits_used,   record: credits_used,   result_type: NUMBER,    owner: git }
+      - { yaml: null,           record: input_tokens,   result_type: NUMBER,    owner: tines-only }
+      - { yaml: null,           record: output_tokens,  result_type: NUMBER,    owner: tines-only }
+      - { yaml: summary,        record: summary,        result_type: TEXT,      owner: git }
+      - { yaml: refs,           record: ref,            result_type: TEXT,      owner: git, transform: refs_to_ref }
+      - { yaml: tracker_rev,    record: tracker_rev,    result_type: NUMBER,    owner: git }
+      - { yaml: sha,            record: source_sha,     result_type: TEXT,      owner: git }
+    # Events flow both ways but are never edited: transitions reach sdlc_events through Flow 1 (section B, B8);
+    # Tines-side events (gate decisions on the Page, runtime specialist runs, D9) reach events.jsonl through the
+    # outbox's events[] and tracker-fold. IDE-side specialist runs stay in events.jsonl only.

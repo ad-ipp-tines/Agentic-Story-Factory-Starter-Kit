@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# scripts/kit — the starter kit's dispatcher (REPO-DESIGN.md §2, §6.5, §8.2, §15.4). Subcommands map onto
+# scripts/kit_bundle.py, kit_config.py and kit_tracker.py. Keep the names stable: .claude/settings.json matches
+# them by prefix — allow: Bash(./scripts/kit tracker-json *) · ask: Bash(./scripts/kit bundle *),
+# Bash(./scripts/kit apply-config *), Bash(./scripts/kit tracker-fold *), Bash(./scripts/kit tracker-json --push *)
+# (ask beats allow, so the push form asks even though tracker-json is allowed).
+#
+# The tracker webhook URLs (TRACKER_SYNC_URL, TRACKER_OUTBOX_URL) carry secrets and live ONLY in the GitHub
+# environment `tracker`: every subcommand that calls them refuses unless GITHUB_ACTIONS=true and
+# GITHUB_REF=refs/heads/main (here and again in kit_tracker.py). They are never in .env and never printed.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+py="${PYTHON:-python3}"
+export PYTHONDONTWRITEBYTECODE=1   # no scripts/__pycache__ in the working tree (REPO-DESIGN.md §3.5), as in scripts/sdlc
+
+usage() {
+  cat >&2 <<'EOF'
+usage: ./scripts/kit <subcommand> [args]
+
+  bundle [--check] [--out FILE]
+      Build kit/bundle/kit-bundle.json (skills, record types, resources, dashboard, app files, file manifest,
+      state machine, catalog) and the generated examples in kit/resources/. --check writes nothing and exits 1
+      when anything is stale (kit.yml on PRs; ./scripts/sdlc check bundle_fresh).
+
+  apply-config [--targets manifest,never-touch,ceilings,tracker] [--config FILE] [--report FILE]
+               [--dry-run] [--check] [--summary FILE] [--pr-body FILE]
+      Propagate kit/tenant/config.yaml (and kit/tenant/setup-report.json) into stories/_manifest.yaml,
+      policies/never-touch.yml, policies/cost-ceilings.yml and the tracker. Fills placeholders only; a
+      differing non-placeholder value is reported as a conflict and left alone. kit.yml opens the PRs.
+
+  tracker-json [--full] [--out FILE] [--check] [--push]
+      Flow 1: the tracker as {schema_version, source_sha, full, entries[], milestones[], view} (Record field
+      names). --push POSTs it to $TRACKER_SYNC_URL — GitHub Actions on refs/heads/main only (tracker-sync.yml).
+
+  tracker-fold --input FILE|- | --pull | --ack SUMMARY | --snapshot | --snapshot-input FILE
+               [--summary FILE] [--pr-body FILE] [--report FILE] [--open-pr-keys K,K] [--fold-divergent] [--dry-run]
+      Flow 2: fold the Tines outbox (section E) into backlog.yaml, milestones.yaml, sdlc/work/<slug>/{intake.md,
+      retro.md,events.jsonl}. --pull, --ack and --snapshot call $TRACKER_OUTBOX_URL — CI on main only
+      (tracker-pull.yml). --input and --snapshot-input work offline on a saved response.
+
+  sync-resources [--env prod] [--dry-run]
+      Push the generated Resources to the ops team under the sdlc_sync_lock compare-and-swap: PUT
+      sdlc_state_machine, kit_catalog and kit_config (whole value), replace the sdlc_limits keys it owns, write
+      kit_state.hash_<name>. kit-sync.yml only (GitHub Actions on main); --dry-run prints the plan anywhere.
+EOF
+  exit 2
+}
+
+ci_main_only() {
+  if [ "${GITHUB_ACTIONS:-}" != "true" ] || [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+    echo "kit: $1 runs only in GitHub Actions on refs/heads/main (the tracker webhook URLs never reach a laptop)." >&2
+    exit 2
+  fi
+}
+
+[ $# -ge 1 ] || usage
+cmd="$1"; shift
+
+case "$cmd" in
+  bundle)
+    exec "$py" "$here/kit_bundle.py" "$@" ;;
+  apply-config)
+    exec "$py" "$here/kit_config.py" apply-config "$@" ;;
+  tracker-json)
+    for arg in "$@"; do
+      if [ "$arg" = "--push" ]; then ci_main_only "tracker-json --push"; fi
+    done
+    exec "$py" "$here/kit_tracker.py" json "$@" ;;
+  tracker-fold)
+    for arg in "$@"; do
+      case "$arg" in
+        --pull|--ack|--ack=*|--snapshot) ci_main_only "tracker-fold $arg" ;;
+      esac
+    done
+    exec "$py" "$here/kit_tracker.py" fold "$@" ;;
+  sync-resources)
+    exec "$py" "$here/kit_config.py" sync-resources "$@" ;;
+  -h|--help|help)
+    usage ;;
+  *)
+    echo "kit: unknown subcommand '$cmd'" >&2
+    usage ;;
+esac

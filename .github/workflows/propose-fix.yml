@@ -1,0 +1,476 @@
+# .github/workflows/propose-fix.yml — close the loop from the monitor story to a PR without giving the pipeline tenant
+# access (DESIGN.md §3.4 "propose-fix.yml", §4.4 step 6, §5.7 `story_config`; .claude/skills/tines-propose-fix/SKILL.md).
+#
+#   [OPS] 10 · Monitor story health and credits  --repository_dispatch tines-fix-proposal-->  this workflow
+#     client_payload = {finding_id, slug, proposal: <the triage agent's output-schema object>}
+#   → .tines/proposal.json (validated, size-capped, treated as DATA — it was written by a model reading
+#     attacker-influenceable logs)
+#   → headless Claude Code runs /tines-propose-fix with an explicit --allowedTools list, --max-turns, a timeout,
+#     and NO MCP server (--strict-mcp-config with an empty config)
+#   → a deterministic contract check (one story.json, one action, agent order and links untouched, lint clean,
+#     not a never-touch story) — only then is anything pushed
+#   → a PR labelled `ops-proposal`, or — when nothing may be edited automatically — the diagnosis as a comment on the
+#     monitor's `ops-finding` issue (or a new `ops-proposal` issue).
+#
+# The PR then goes through lint.yml, review.yml, a CODEOWNER, a human merge, ship.yml and a named approver in Tines.
+# Nothing here touches the tenant: no Tines key exists in this workflow, and the model's process holds no GitHub token
+# either (checkout without persisted credentials; the push happens in a later step the model cannot reach).
+# The daily cap is enforced by the story (`ops_limits.max_proposals_per_day`), not here; `concurrency: proposals`
+# runs one at a time.
+#
+# Why the Claude Code CLI and not anthropics/claude-code-action (which review.yml uses): the action can add its own
+# MCP servers and GitHub tools depending on its mode (VERIFY #21), and "no MCP" must be provable. Running the CLI
+# with `--strict-mcp-config --mcp-config '{"mcpServers":{}}'` loads zero servers. `--setting-sources project` loads
+# this repository's skill and its hooks (block-secrets, lint-on-write, stop-gate) — the repository is trusted here
+# only because the `propose` job runs from main: repository_dispatch always runs on the default branch, and a
+# workflow_dispatch (which GitHub lets anyone with write access start from ANY branch) is refused unless
+# github.ref is refs/heads/main. CLI flag behaviour: VERIFY E8.
+#
+# The model reads attacker-influenceable proposal text while ANTHROPIC_API_KEY is in its process environment, so
+# nothing it authors leaves the runner unchecked: no `jq`/`yq`/`env` (they can print the environment), only file
+# diffs pass the contract check, and the commit is REBUILT deterministically afterwards — exactly one commit, a
+# template message, the bot identity, a branch name derived from the sanitised finding_id — and its metadata is
+# scanned with tines_common.SECRET_PATTERNS before anything is pushed.
+#
+# OPTIONAL: off until the repository secret ANTHROPIC_API_KEY exists AND CLAUDE_CODE_VERSION is pinned to an exact
+# x.y.z (the `gate` job reports skipped otherwise — an unpinned CLI never runs in a job with contents: write).
+# Budget: --max-turns from policies/cost-ceilings.yml `ci.propose_fix_max_turns` (15); job timeout 20 minutes
+# (`ci.propose_fix_timeout_min`); the CLI is killed at 14 minutes.
+
+name: propose-fix
+
+on:
+  repository_dispatch:
+    types: [tines-fix-proposal]
+  workflow_dispatch:
+    inputs:
+      proposal:
+        description: "client_payload JSON {finding_id, slug, proposal: {...schema output...}} — or the bare schema object"
+        required: true
+        type: string
+
+permissions:
+  contents: write # push the ops/proposal-<id> branch
+  pull-requests: write # open the ops-proposal PR
+  issues: write # the diagnosis comment / issue and the labels
+
+concurrency:
+  group: proposals
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  # REQUIRED before this workflow runs: an exact Claude Code CLI version (x.y.z) the security-platform owner has
+  # verified. Never `latest` — the CLI runs in a job that can push branches. The gate refuses anything else.
+  CLAUDE_CODE_VERSION: "<pin-an-exact-x.y.z>"
+
+jobs:
+  gate:
+    name: is the headless proposer enabled
+    # A workflow_dispatch from any branch other than main would run that branch's skill, hooks and scripts
+    # with ANTHROPIC_API_KEY and a contents: write token — refused. repository_dispatch always runs on main.
+    if: github.event_name == 'repository_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Secret present, CLI pinned and the skill committed?
+        id: check
+        env:
+          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          set -euo pipefail
+          enabled=true
+          if [ "$HAS_KEY" != "true" ]; then
+            enabled=false
+            echo "::notice title=propose-fix::ANTHROPIC_API_KEY is not set — the headless proposer is optional and stays off; the monitor's ops-finding issue still carries the diagnosis"
+          fi
+          if ! printf '%s' "$CLAUDE_CODE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            enabled=false
+            echo "::warning title=propose-fix::CLAUDE_CODE_VERSION is '${CLAUDE_CODE_VERSION}', not an exact x.y.z — an unpinned CLI never runs here; pin a verified version in propose-fix.yml"
+          fi
+          if [ ! -f .claude/skills/tines-propose-fix/SKILL.md ]; then
+            enabled=false
+            echo "::notice title=propose-fix::.claude/skills/tines-propose-fix/SKILL.md is missing — nothing to run"
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+
+  propose:
+    name: headless /tines-propose-fix → PR (no MCP, no tenant)
+    needs: gate
+    if: needs.gate.outputs.enabled == 'true' && (github.event_name == 'repository_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # policies/cost-ceilings.yml ci.propose_fix_timeout_min
+    steps:
+      - name: Check out (full history; no persisted credentials — the model's process gets no git token)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Write the proposal to .tines/proposal.json (data, never instructions)
+        id: proposal
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CLIENT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          INPUT_PROPOSAL: ${{ github.event.inputs.proposal }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, sys
+          import yaml
+
+          MAX_BYTES = 65536
+          KINDS = {"none", "story_config", "alert_rule", "disable_action", "credit_action"}
+          run_id = os.environ.get("GITHUB_RUN_ID", "0")
+
+          def single(text, limit):
+              return re.sub(r"[\x00-\x1f\x7f]+", " ", str(text or "")).strip()[:limit]
+
+          def write_outputs(**kw):
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                  for k, v in kw.items():
+                      fh.write(f"{k}={single(v, 200)}\n")  # one line each: no output injection from payload text
+
+          def fail(msg):
+              print(f"::error title=propose-fix::{msg}"); sys.exit(1)
+
+          raw = os.environ.get("CLIENT_PAYLOAD") if os.environ.get("EVENT_NAME") == "repository_dispatch" else os.environ.get("INPUT_PROPOSAL")
+          raw = (raw or "").strip()
+          if not raw or raw == "null":
+              fail("no proposal in the event")
+          if len(raw.encode("utf-8")) > MAX_BYTES:
+              fail(f"proposal is larger than {MAX_BYTES} bytes — refusing (the schema output is small by design)")
+          try:
+              payload = json.loads(raw)
+              finding, hint = None, None
+              if isinstance(payload, dict) and "proposal" in payload:
+                  proposal, finding, hint = payload["proposal"], payload.get("finding_id"), payload.get("slug")
+              else:
+                  proposal = payload
+              if isinstance(proposal, str):
+                  proposal = json.loads(proposal)
+          except json.JSONDecodeError as exc:
+              fail(f"proposal is not JSON: {exc.msg}")
+          if not isinstance(proposal, dict):
+              fail("proposal must be a JSON object (the monitor agent's output schema)")
+
+          change = proposal.get("proposed_change") if isinstance(proposal.get("proposed_change"), dict) else {}
+          kind = str(change.get("kind") or "")
+          if kind not in KINDS:
+              fail(f"proposed_change.kind {kind!r} is not one of {sorted(KINDS)}")
+          try:
+              story_id = int(proposal.get("story_id"))
+          except (TypeError, ValueError):
+              fail("story_id must be an integer")
+          finding_id = re.sub(r"[^A-Za-z0-9._-]", "-", str(finding or proposal.get("finding_id") or ""))[:80].strip("-.") or f"run-{run_id}"
+          proposal["finding_id"] = finding_id
+
+          manifest = yaml.safe_load(pathlib.Path("stories/_manifest.yaml").read_text(encoding="utf-8")) or {}
+          slug = ""
+          for s, e in (manifest.get("stories") or {}).items():
+              ids = {int(((e or {}).get(env) or {}).get("story_id") or 0) for env in ("prod", "dev", "staging")}
+              if story_id > 0 and story_id in ids:
+                  slug = s; break
+          never = yaml.safe_load(pathlib.Path("policies/never-touch.yml").read_text(encoding="utf-8")) or {}
+          protected = story_id in {int(x) for x in (never.get("story_ids") or []) if str(x).isdigit()}
+          name = str(proposal.get("story_name") or "")
+          protected = protected or slug.startswith("ops-") or any(re.search(p, name) for p in (never.get("name_patterns") or []))
+          try:
+              confidence = float(proposal.get("confidence"))
+          except (TypeError, ValueError):
+              confidence = 0.0
+
+          reason = ""
+          if kind != "story_config":
+              reason = f"kind `{kind}` is not auto-PR material (only story_config is dispatched); the monitor's issue and approval flow carry it"
+              mode = "none"
+          elif not slug:
+              reason = f"story {story_id} is not in stories/_manifest.yaml, so there is no committed export to edit"
+              mode = "diagnosis"
+          elif protected:
+              reason = f"`{slug}` is write-protected (policies/never-touch.yml); the ops stories change only through their own change requests"
+              mode = "diagnosis"
+          elif proposal.get("needs_human") is True or confidence < 0.6:
+              reason = "the monitor marked it needs_human, or confidence is below 0.6 — a person decides"
+              mode = "diagnosis"
+          else:
+              mode = "model"
+
+          pathlib.Path(".tines").mkdir(exist_ok=True)
+          pathlib.Path(".tines/proposal.json").write_text(json.dumps(proposal, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          ceilings = yaml.safe_load(pathlib.Path("policies/cost-ceilings.yml").read_text(encoding="utf-8")) or {}
+          max_turns = int(((ceilings.get("ci") or {}).get("propose_fix_max_turns")) or 15)
+          summary = single(change.get("summary") or proposal.get("recommended_fix") or "fix proposal", 100)
+          if hint and slug and hint != slug:
+              print(f"::notice title=propose-fix::the payload's slug hint differs from the manifest ({slug}); the manifest wins")
+          write_outputs(mode=mode, finding_id=finding_id, slug=slug, story_id=story_id, kind=kind,
+                        summary=summary, reason=reason, max_turns=max_turns)
+          print(json.dumps({"mode": mode, "finding_id": finding_id, "slug": slug, "story_id": story_id, "kind": kind, "reason": reason}))
+          PY
+
+      - name: Git identity, executable hooks, and the base commit (the contract check diffs against it)
+        id: base
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The hooks are the headless run's enforcement (block-secrets, lint-on-write, stop-gate); make sure they can
+          # execute even if the repository does not carry the bit, without that mode change ever reaching a commit.
+          git config core.fileMode false
+          chmod +x .claude/hooks/*.sh scripts/tines scripts/lint-story.sh scripts/diff-story.sh 2>/dev/null || true
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Headless /tines-propose-fix — no MCP, no tenant key, no GitHub token
+        id: claude
+        if: steps.proposal.outputs.mode == 'model'
+        timeout-minutes: 15
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MAX_TURNS: ${{ steps.proposal.outputs.max_turns }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$CLAUDE_CODE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error title=propose-fix::CLAUDE_CODE_VERSION must be an exact x.y.z"; exit 1; }
+          npm install --global --no-fund --no-audit --loglevel=error "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          # Exactly what the skill needs plus Write to the gitignored .tines/ scratch for the PR body. No `jq`: the
+          # skill Reads the proposal JSON, and `jq -n env` / `$ENV` would print ANTHROPIC_API_KEY into its context.
+          allowed="Read,Glob,Grep,Edit(stories/**),Write(.tines/**),Bash(./scripts/lint-story.sh *),Bash(./scripts/diff-story.sh *),Bash(git checkout -b *),Bash(git checkout -- *),Bash(git add *),Bash(git commit *),Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *)"
+          # Deny beats allow — including the project settings' rules loaded with --setting-sources project and the
+          # skill's own allowed-tools. jq / yq (env(), -i) / env / printenv can read or rewrite what they should not.
+          denied="Bash(jq *),Bash(yq *),Bash(env *),Bash(env),Bash(printenv *),Bash(printenv),Bash(set),Bash(export *),Bash(git push *),Bash(git remote *),Bash(git config *),Bash(curl *),Bash(wget *),Bash(gh *),Bash(./scripts/tines *),Bash(python *),Bash(python3 *),Bash(npm *),Bash(npx *),WebFetch,WebSearch"
+          rc=0
+          timeout 840 claude -p "/tines-propose-fix .tines/proposal.json" \
+            --max-turns "$MAX_TURNS" \
+            --allowedTools "$allowed" \
+            --disallowedTools "$denied" \
+            --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
+            --setting-sources project \
+            --output-format json > "$RUNNER_TEMP/claude.json" || rc=$?
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning title=propose-fix::the headless run exited $rc (124 = timeout); the contract check decides what, if anything, is proposed"
+          fi
+
+      - name: Contract check (deterministic) and the PR / issue body
+        id: check
+        if: steps.proposal.outputs.mode != 'none'
+        env:
+          MODE_IN: ${{ steps.proposal.outputs.mode }}
+          SLUG: ${{ steps.proposal.outputs.slug }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          REASON: ${{ steps.proposal.outputs.reason }}
+          FINDING_ID: ${{ steps.proposal.outputs.finding_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, sys
+          sys.path.insert(0, "scripts")
+          from tines_read import one_line, scrub
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True)
+
+          slug, base = os.environ.get("SLUG", ""), os.environ["BASE_SHA"]
+          proposal = json.loads(pathlib.Path(".tines/proposal.json").read_text(encoding="utf-8"))
+          run_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          violations, mode, branch = [], "diagnosis", ""
+          reason = os.environ.get("REASON", "")
+
+          if os.environ.get("MODE_IN") == "model":
+              branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+              ahead = int(git("rev-list", "--count", f"{base}..HEAD").stdout.strip() or 0)
+              if git("status", "--porcelain", "--", "stories").stdout.strip():
+                  violations.append("uncommitted changes under stories/ were left behind (discarded)")
+                  git("checkout", "--", "stories")
+              if ahead == 0:
+                  reason = reason or "the skill classified the proposal as diagnosis-only (no allowed edit maps to it)"
+              else:
+                  target = f"stories/{slug}/story.json"
+                  changed = git("diff", "--name-only", f"{base}..HEAD").stdout.split()
+                  if ahead != 1:
+                      violations.append(f"{ahead} commits on top of the base; exactly one is allowed")
+                  if not branch.startswith("ops/proposal-"):
+                      violations.append(f"branch `{branch}` is not ops/proposal-<id>")
+                  if changed != [target]:
+                      violations.append(f"the commit(s) touch {changed}, not exactly `{target}`")
+                  else:
+                      before = json.loads(git("show", f"{base}:{target}").stdout)
+                      after = json.loads(pathlib.Path(target).read_text(encoding="utf-8"))
+                      ba, aa = before.get("agents") or [], after.get("agents") or []
+                      if [a.get("guid") for a in ba] != [a.get("guid") for a in aa]:
+                          violations.append("the agent list or its order changed (links are index-based)")
+                      if before.get("links") != after.get("links"):
+                          violations.append("links changed")
+                      if {k: v for k, v in before.items() if k != "agents"} != {k: v for k, v in after.items() if k != "agents"}:
+                          violations.append("story-level keys changed")
+                      touched = [a.get("name") for a, b in zip(ba, aa) if a != b]
+                      if len(touched) != 1:
+                          violations.append(f"{len(touched)} actions changed; exactly one is allowed")
+                      for a, b in zip(ba, aa):
+                          if a != b and {k: v for k, v in a.items() if k != "options"} != {k: v for k, v in b.items() if k != "options"}:
+                              violations.append(f"action `{a.get('name')}` changed outside `options`")
+                      lint = subprocess.run(["./scripts/lint-story.sh", target], capture_output=True, text=True)
+                      if lint.returncode:
+                          violations.append("lint fails on the edited export: " + one_line(lint.stdout + lint.stderr, 300))
+                  mode = "pr" if not violations else "diagnosis"
+                  if violations:
+                      reason = "the automatic edit broke the contract, so nothing was pushed"
+
+          # The skill's own body (with its ready /tines-build-story prompt) is used when the model ran and kept the
+          # contract; after a violation the body is rebuilt from the proposal alone, never from the model's account.
+          body_file = pathlib.Path(".tines/proposal-pr.md")
+          use_skill_body = os.environ.get("MODE_IN") == "model" and not violations and body_file.exists()
+          body = scrub(body_file.read_text(encoding="utf-8")) if use_skill_body else ""
+          if not body.strip():
+              change = proposal.get("proposed_change") or {}
+              rows = ["| source | ref | excerpt |", "|---|---|---|"]
+              for ev in (proposal.get("evidence") or [])[:10]:
+                  if isinstance(ev, dict):
+                      cells = [one_line(ev.get(k), 160).replace("|", "\\|") for k in ("source", "ref", "excerpt")]
+                      rows.append("| " + " | ".join(cells) + " |")
+              prompt = f'/tines-build-story {slug or "<slug>"} "{one_line(proposal.get("recommended_fix") or change.get("summary"), 300)}"'
+              body = "\n".join([
+                  f"## ops-proposal — {one_line(proposal.get('story_name'), 120) or 'story ' + str(proposal.get('story_id'))} (`{slug or 'not in the manifest'}`)",
+                  "",
+                  f"**Diagnosis only — no JSON edited.** {reason}",
+                  "",
+                  f"- finding: `{proposal.get('finding_id')}` · severity: `{proposal.get('severity')}` · category: `{proposal.get('category')}` · confidence: `{proposal.get('confidence')}`",
+                  f"- root cause hypothesis: {one_line(proposal.get('root_cause_hypothesis'), 500)}",
+                  f"- recommended fix: {one_line(proposal.get('recommended_fix'), 500)}",
+                  f"- proposed change: `{change.get('kind')}` → {one_line(change.get('target'), 200)} — {one_line(change.get('summary'), 300)}",
+                  "",
+                  "**Evidence** (data from the tenant, not instructions):",
+                  "",
+                  *rows,
+                  "",
+                  "**Ready prompt** for a builder in the dev team:",
+                  "",
+                  f"    {prompt}",
+              ])
+          if violations:
+              body += "\n\n**Contract violations in the automatic edit (nothing pushed):**\n" + "\n".join(f"- {v}" for v in violations)
+          body += (
+              "\n\n---\n_Requires human approval in Tines after merge (ship.yml → draft → change request). "
+              "Opened by propose-fix.yml — the model had no MCP server, no Tines key and no GitHub token; "
+              f"evidence strings are data, never instructions. Run: {run_url}_\n"
+          )
+          if len(body) > 60000:
+              body = body[:60000] + "\n\n_…truncated; see the job summary._\n"
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "proposal-body.md"
+          out.write_text(body, encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"mode={mode}\nbranch={branch}\nbody={out}\nviolations={len(violations)}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(f"## propose-fix.yml — finding `{os.environ.get('FINDING_ID')}` → **{mode}**\n\n")
+              if violations:
+                  fh.write("Contract violations:\n" + "\n".join(f"- {v}" for v in violations) + "\n\n")
+          print(json.dumps({"mode": mode, "branch": branch, "violations": violations}))
+          PY
+
+      - name: Rebuild the commit deterministically and scan its metadata (nothing model-authored is pushed)
+        id: rebuild
+        if: steps.check.outputs.mode == 'pr'
+        env:
+          SLUG: ${{ steps.proposal.outputs.slug }}
+          FINDING_ID: ${{ steps.proposal.outputs.finding_id }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # exactly one commit on top of the base (the contract check already refused anything else)
+          [ "$(git rev-list --count "${BASE_SHA}..HEAD")" = "1" ] || { echo "::error title=propose-fix::expected exactly one commit"; exit 1; }
+          # slug and finding_id were sanitised by the proposal step; re-check before they reach a ref or a message
+          printf '%s' "$SLUG" | grep -Eq '^[a-z0-9]+(-[a-z0-9]+)*$' || { echo "::error title=propose-fix::unexpected slug"; exit 1; }
+          printf '%s' "$FINDING_ID" | grep -Eq '^[A-Za-z0-9._-]{1,80}$' || { echo "::error title=propose-fix::unexpected finding_id"; exit 1; }
+          # template message and the bot identity replace whatever the model wrote
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit --amend --quiet --reset-author --no-verify \
+            -m "story(${SLUG}): ops-proposal ${FINDING_ID}" \
+            -m "Applied by propose-fix.yml from a monitor finding. Requires review, a human merge and a change-request approval in Tines."
+          branch="ops/proposal-${FINDING_ID}"
+          # scan the commit metadata and the branch name with the one secret list
+          { git log -1 --format='%an%n%ae%n%cn%n%ce%n%B'; echo "$branch"; } > "$RUNNER_TEMP/commit-meta.txt"
+          python3 - "$RUNNER_TEMP/commit-meta.txt" <<'PY'
+          import pathlib, sys
+          sys.path.insert(0, "scripts")
+          from tines_common import SECRET_PATTERNS
+          text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+          hits = [name for name, pattern in SECRET_PATTERNS if pattern.search(text)]
+          if hits:
+              print(f"::error title=propose-fix::commit metadata matches secret pattern(s) {hits}; nothing pushed")
+              sys.exit(1)
+          PY
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+
+      - name: Push the branch and open the ops-proposal PR
+        if: steps.check.outputs.mode == 'pr' && steps.rebuild.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.rebuild.outputs.branch }}
+          BODY: ${{ steps.check.outputs.body }}
+          SLUG: ${{ steps.proposal.outputs.slug }}
+          SUMMARY: ${{ steps.proposal.outputs.summary }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git # credentials exist only from this step on; the model's step had none
+          git push --quiet --force origin "HEAD:refs/heads/${BRANCH}"
+          gh label create ops-proposal --color 5319E7 --description "fix proposed by the monitor (propose-fix.yml)" 2>/dev/null || true
+          existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file "$BODY" >/dev/null
+            echo "Updated PR #${existing}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            url=$(gh pr create --base "${GITHUB_REF_NAME}" --head "$BRANCH" --label ops-proposal \
+                  --title "ops-proposal: ${SLUG} — ${SUMMARY}" --body-file "$BODY")
+            echo "Opened ${url}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "_A PR opened with GITHUB_TOKEN does not trigger lint.yml / review.yml by itself; push an empty commit from a person or use a GitHub App token if they must run._" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Diagnosis only — comment on the monitor's issue, or open one
+        if: steps.check.outputs.mode == 'diagnosis'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ steps.check.outputs.body }}
+          FINDING_ID: ${{ steps.proposal.outputs.finding_id }}
+          SLUG: ${{ steps.proposal.outputs.slug }}
+          STORY_ID: ${{ steps.proposal.outputs.story_id }}
+          SUMMARY: ${{ steps.proposal.outputs.summary }}
+        run: |
+          set -euo pipefail
+          issue=$(gh issue list --label ops-finding --state open --search "\"${FINDING_ID}\" in:body" --json number --jq '.[0].number // empty' || true)
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body-file "$BODY" >/dev/null
+            echo "Commented on the monitor's issue #${issue}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh label create ops-proposal --color 5319E7 --description "fix proposed by the monitor (propose-fix.yml)" 2>/dev/null || true
+            url=$(gh issue create --label ops-proposal \
+                  --title "ops-proposal (diagnosis only): ${SLUG:-story ${STORY_ID}} — ${SUMMARY}" --body-file "$BODY")
+            echo "Opened ${url}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Cost and turns of the headless run
+        if: always() && steps.claude.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          if [ -s "$RUNNER_TEMP/claude.json" ]; then
+            jq -r '"- turns: \(.num_turns // "?") · cost (USD): \(.total_cost_usd // "?") · error: \(.is_error // "?") · duration (ms): \(.duration_ms // "?")"' \
+              "$RUNNER_TEMP/claude.json" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null \
+              || echo "- the headless run produced no parsable result (VERIFY E8: --output-format json shape)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- the headless run produced no output" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Nothing to do for this kind
+        if: steps.proposal.outputs.mode == 'none'
+        env:
+          REASON: ${{ steps.proposal.outputs.reason }}
+        run: echo "## propose-fix.yml — nothing proposed. ${REASON}" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,21 @@
+# CLAUDE.local.md — personal notes (gitignored; copy this file to CLAUDE.local.md)
+
+Personal, per-machine context for Claude Code. Never keys, tokens, webhook URLs or credential values — those live in `.env` (also gitignored) and in Tines.
+
+## My tenant and team
+
+- `TINES_TENANT=<your-tenant>` — host prefix only (the part before `.tines.com`)
+- `MY_DEV_TEAM_ID=0` — the dev team id from `stories/_manifest.yaml: environments.dev.team_id`
+- Dev folder for my builds: `<folder name>` (folder id in the manifest)
+
+## Scratch stories I own in the dev team
+
+| Story name | Story id | Purpose | Delete after |
+|---|---|---|---|
+| `[SEC] 99 · Scratch` | 0 | trying prompts from the prompt pack | <date> |
+
+## Reminders to myself
+
+- Run `/tines-connect` after switching tenants; an empty tool list means the OAuth session lapsed.
+- `source .env` before any skill that needs `TINES_TENANT`; the skills never read `.env` themselves.
+- Record any `/mcp` tool names my client shows in `docs/VERIFY.md` item 1.

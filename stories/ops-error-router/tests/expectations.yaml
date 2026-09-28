@@ -1,0 +1,170 @@
+# tests/expectations.yaml — [OPS] 01 · Route monitoring alerts.
+# The build skill posts tests/sample-event.json to the entry action `receive_alert`
+# (`?draft=<name>` when change control is on), reads the run (GET /api/v1/stories/{id}/runs, /runs/{guid})
+# and asserts the block below. Run it in the DEV team only.
+#
+# ⚠ tests/sample-event.json is the PLACEHOLDER monitoring shape (the `body` of
+# samples/monitoring-payload.sample.json — VERIFY #9). Until a real capture replaces it, these tests
+# prove the wiring (dedupe, routing, threading, hand-off, dead letter), not the parsing of a real
+# notification. The one KNOWN shape is the pipeline's ship notification (variant ci_change_request_opened).
+#
+# Preconditions (dev team, [BY HAND]):
+#   Resources: ops_routing (default.channel set; `_approvals.channel` set) · ops_limits with
+#              error_threshold_per_window = 3 and — while testing the router — enabled = false, so the
+#              forward lands in [OPS] 10 but the sweep exits at its kill_switch and spends no credits.
+#   Record types: ops_alerts · ops_dead_letter (fields in ../ops-story-health-monitor/records/record-types.md);
+#              delete any ops_alerts rows with alert_id prefix "0-0-2026-09-24" before the run.
+#   Credentials: tines_api_readonly (Viewer role) · slack_bot (the bot is in the default channel).
+#   [OPS] 10 · Monitor story health and credits exists and is Send-to-Story-enabled in the dev team.
+#   For enrich_logs to return a real log, set the sample's action.id to an action in a scratch story that
+#   has actually failed (deliberately fail one HTTP Request action first); with id 0 the lookup 404s,
+#   which is excluded from error logging, and the excerpt falls back to the notification's message.
+#
+# This story has no `result` transform (it is not a sub-story); the asserted shape is `shape_forward`,
+# which must equal the input [OPS] 10's `receive_from_router` expects
+# (../ops-story-health-monitor/tests/sample-event.json) key for key.
+
+entry_action: receive_alert
+expected_actions_fired_min: 18                # receive_alert normalize classify_source is_story_monitoring dedupe_lookup is_new_alert is_action_failure enrich_logs classify route is_slack_route find_thread needs_thread post_thread_root write_alert should_forward shape_forward forward_to_sweep
+no_error_logs_on:
+  - receive_alert
+  - normalize
+  - classify_source
+  - dedupe_lookup
+  - enrich_logs                               # a 404 on an unknown action id is excluded from error logging, by design
+  - classify
+  - route
+  - find_thread
+  - post_thread_root                          # a Slack 200 with ok:false is logged as an error (log_error_if) and fails this assertion
+  - write_alert
+  - shape_forward
+  - forward_to_sweep
+result_action: shape_forward
+result_fields:                                # exactly these sixteen, in the sweep's order
+  - trigger
+  - alert_id
+  - story_id
+  - story_name
+  - action_id
+  - action_name
+  - action_type
+  - source
+  - category
+  - severity
+  - count
+  - first_seen
+  - last_seen
+  - last_error_excerpt
+  - thread_ts
+  - channel
+result_field_values:
+  trigger: "router"
+  alert_id: "0-0-2026-09-24T17-00"            # <story_id>-<action_id>-<15-minute bucket>
+  source: "story_monitoring"
+  category: "upstream_5xx"
+  severity: "medium"
+  count: 1
+must_not_fire:
+  - is_tenant_alert
+  - is_change_control
+  - is_unrecognised
+  - is_repeat_alert
+  - increment_count
+  - reached_threshold
+  - is_not_action_failure
+  - has_thread                                # first alert of the day for this story
+  - post_reply
+  - is_email_route
+  - send_alert_email
+  - post_change_control
+  - error
+  - dead_letter
+record_after:
+  ops_alerts:
+    alert_id: "0-0-2026-09-24T17-00"
+    count: 1
+    status: open
+    category: upstream_5xx
+    severity: medium
+    thread_ts: "<non-empty — the ts of post_thread_root>"
+    channel: "<ops_routing.default.channel>"
+forwarded:                                    # read the run of [OPS] 10 that the hand-off started
+  story: "[OPS] 10 · Monitor story health and credits"
+  entry_action: receive_from_router
+  must_fire: [receive_from_router, normalize, kill_switch]
+  must_not_fire: [acquire_lock, triage]       # ops_limits.enabled is false while the router is tested
+  ai_credits_used_max: 0
+
+# Additional runs the build skill performs after the happy path; each is a separate event unless noted.
+variants:
+  repeat_within_window:
+    event: same as tests/sample-event.json, posted again within 15 minutes of the happy path
+    must_fire: [receive_alert, normalize, classify_source, is_story_monitoring, dedupe_lookup, is_repeat_alert, increment_count]
+    must_not_fire: [is_new_alert, enrich_logs, classify, post_thread_root, post_reply, send_alert_email, write_alert, reached_threshold, forward_to_sweep, error]
+    record_after: { ops_alerts: { alert_id: "0-0-2026-09-24T17-00", count: 2, severity: medium } }
+    note: "a repeat is counted, never re-posted; a medium alert was already handed off, so reaching the threshold later does not hand it off again"
+
+  low_severity_reaches_threshold:
+    events:                                   # three posts inside one 15-minute bucket (17:15–17:29)
+      - { event: "action_failed", story: { id: 0, name: "[SEC] 01 · Enrich IP (sub)" }, action: { id: 0, name: "lookup_abuseipdb", type: "Agents::HTTPRequestAgent" }, status: 429, message: "HTTP 429 from upstream after final retry", occurred_at: "2026-09-24T17:16:00Z" }
+      - { event: "action_failed", story: { id: 0, name: "[SEC] 01 · Enrich IP (sub)" }, action: { id: 0, name: "lookup_abuseipdb", type: "Agents::HTTPRequestAgent" }, status: 429, message: "HTTP 429 from upstream after final retry", occurred_at: "2026-09-24T17:20:00Z" }
+      - { event: "action_failed", story: { id: 0, name: "[SEC] 01 · Enrich IP (sub)" }, action: { id: 0, name: "lookup_abuseipdb", type: "Agents::HTTPRequestAgent" }, status: 429, message: "HTTP 429 from upstream after final retry", occurred_at: "2026-09-24T17:24:00Z" }
+    after_first:  { must_fire: [is_new_alert, classify, has_thread, post_reply, write_alert], must_not_fire: [should_forward, forward_to_sweep] }
+    after_second: { must_fire: [is_repeat_alert, increment_count], must_not_fire: [reached_threshold, forward_to_sweep] }
+    after_third:  { must_fire: [is_repeat_alert, increment_count, reached_threshold, shape_forward, forward_to_sweep] }
+    result_field_values: { alert_id: "0-0-2026-09-24T17-15", category: "rate_limit", severity: "medium", count: 3 }
+    note: "rate_limit starts low (not handed off); the third occurrence in the window equals error_threshold_per_window, raises the row to medium and hands off exactly once. The first post replies in the happy path's thread (same story, same day)."
+
+  second_action_same_day_threads:
+    event: { event: "action_failed", story: { id: 0, name: "[SEC] 01 · Enrich IP (sub)" }, action: { id: 0, name: "write_cache", type: "VERIFY:records-action" }, status: 500, message: "HTTP 500 after final retry", occurred_at: "2026-09-24T18:02:00Z" }
+    must_fire: [is_new_alert, find_thread, has_thread, post_reply, write_alert]
+    must_not_fire: [needs_thread, post_thread_root, error]
+    record_after: { ops_alerts: { alert_id: "0-0-2026-09-24T18-00", thread_ts: "<the happy path's thread_ts>" } }
+    note: "one thread per story per day: the root was posted by the happy path. action id 0 is shared by every sample, so the bucket (18-00) is what makes this a new alert_id."
+
+  no_events_silent_source:
+    event: the `body_no_events` object in samples/monitoring-payload.sample.json
+    must_fire: [is_story_monitoring, is_new_alert, is_not_action_failure, classify, route, write_alert, should_forward, forward_to_sweep]
+    must_not_fire: [is_action_failure, enrich_logs, error]
+    result_field_values: { category: "silent_source", severity: "medium", alert_id: "0-0-2026-09-24T19-00" }
+
+  email_route:
+    precondition: { resource: ops_routing, set: { "0": { slug: "example-enrich-ip", email: "owner-team-dl@example.invalid", owner_team: "security-automation" } } }
+    event: same as tests/sample-event.json with occurred_at "2026-09-24T20:00:00Z"
+    must_fire: [route, is_email_route, send_alert_email, write_alert]
+    must_not_fire: [is_slack_route, find_thread, post_thread_root, post_reply, error]
+    record_after: { ops_alerts: { alert_id: "0-0-2026-09-24T20-00", channel: "email", thread_ts: "" } }
+    note: "the Record stores channel: email, never the address. Remove the id-keyed entry afterwards."
+
+  tenant_credit_alert:
+    event: { alert: "ai_credit_usage", scope: "team", percentage: 80, occurred_at: "2026-09-24T21:00:00Z" }
+    must_fire: [classify_source, is_tenant_alert, dedupe_lookup, is_new_alert, is_not_action_failure, classify, route, write_alert]
+    must_not_fire: [is_story_monitoring, enrich_logs, should_forward, forward_to_sweep, error]
+    record_after: { ops_alerts: { source: ai_credit_alert, category: credit_burn, severity: medium, story_id: 0 } }
+    note: "the event keys are PLACEHOLDERS (VERIFY #9); a tenant- or team-level alert (story_id 0) is recorded and posted but never handed off — the sweep reads AI usage itself"
+
+  ci_change_request_opened:                   # the ONE known shape — scripts/ship_story.py posts exactly these keys
+    event:
+      source: "ship_story.py"
+      event: "change_request_opened"
+      env: "dev"
+      slug: "example-enrich-ip"
+      story_id: 0
+      draft_id: 0
+      change_request_id: 0
+      sha: "0000000000000000000000000000000000000000"
+      source_url: null
+      run_url: null
+      requires: "a named approver in Tines"
+    must_fire: [receive_alert, normalize, classify_source, is_change_control, post_change_control]
+    must_not_fire: [is_story_monitoring, is_tenant_alert, dedupe_lookup, write_alert, forward_to_sweep, error]
+    posted_to: "<ops_routing._approvals.channel>"
+    note: "change-control notices are posted to the approvals channel only — never recorded in ops_alerts, never handed to the sweep"
+
+  unrecognised_shape:
+    event: { hello: "world", note: "not a notification" }
+    must_fire: [receive_alert, normalize, classify_source, is_unrecognised, error, dead_letter]
+    must_not_fire: [is_story_monitoring, is_tenant_alert, is_change_control, dedupe_lookup, post_thread_root, forward_to_sweep]
+    result_field_values: { status: "error", error_category: "validation", retryable: false }
+    record_after: { ops_dead_letter: { error_class: validation, status: open } }
+    note: "the dead-letter message lists the payload's key names (hello, note) and never its values"

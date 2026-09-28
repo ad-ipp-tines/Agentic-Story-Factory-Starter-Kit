@@ -1,0 +1,54 @@
+# CODEOWNERS — who must review what. Replace <org> and the team slugs with your GitHub organisation's.
+# Branch protection on main: require a CODEOWNERS review, require lint and review checks, forbid self-merge.
+# Later lines take precedence over earlier ones for the same path.
+
+# Story exports and meta: the builders own them
+/stories/**                     @<org>/tines-builders
+
+# The ops trio changes production monitoring behaviour: security-platform reviews
+/stories/ops-*                  @<org>/security-platform
+
+# The governance contract, budgets, never-touch list, lint rules, break-glass log
+/policies/**                    @<org>/security-platform
+
+# Permissions, hooks, subagents and skills shape what the editor may do
+/.claude/**                     @<org>/security-platform
+
+# Workflows are the gates
+/.github/**                     @<org>/security-platform
+
+# The enforcement code the gates run: the APPROVED-only promotion and bypass gating
+# (promote_change_request.py), the break-glass guard (story_disable.py), guard_prod and
+# SECRET_PATTERNS (tines_common.py), and the lint itself (lint_story.py)
+/scripts/**                     @<org>/security-platform
+
+# The optional alternative deploy path
+/terraform/**                   @<org>/security-platform
+
+# The conventions both editors load every session, and the Cursor-side configuration
+/AGENTS.md                      @<org>/security-platform
+/CLAUDE.md                      @<org>/security-platform
+/.cursor/**                     @<org>/security-platform
+
+# GitHub accepts an approval from ANY owner listed on a line, so a line naming two teams lets either one approve
+# alone. Where security-platform's review is the point, it is the only owner; request builders as optional reviewers.
+
+# Tenant-side Agent Skills change agent behaviour in production: security-platform owns them (builders: optional reviewers)
+/tines-skills/**                @<org>/security-platform
+
+# The story factory (REPO-DESIGN.md §3.3 row 7). The lifecycle rules (state machine, touch sets, dispatch), the
+# specialists' role cards and contracts, the gates and who may approve them change what every later gate enforces:
+# security-platform alone. Per-story artifacts and the backlog are builders' work — except each story's event log and
+# ship record, which carry the gate decisions (G5–G7, GB) that sdlc/gates/approvers.yaml reserves for security-platform
+# and that sdlc.yml's pr_gate_approvers cannot tie to a team by itself. Later lines win.
+/sdlc/**                        @<org>/tines-builders @<org>/security-platform
+/sdlc/lifecycle/**              @<org>/security-platform
+/sdlc/agents/**                 @<org>/security-platform
+/sdlc/gates/**                  @<org>/security-platform
+/sdlc/work/**                   @<org>/tines-builders
+/sdlc/work/*/events.jsonl       @<org>/security-platform
+/sdlc/work/*/ship.md            @<org>/security-platform
+/kit/**                         @<org>/security-platform
+/kit/tracker/**                 @<org>/tines-builders
+/stories/kit-*                  @<org>/security-platform
+/sdlc/gates/approvers.yaml      @<org>/security-platform

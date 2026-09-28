@@ -1,0 +1,138 @@
+# tines-skills/_manifest.yaml
+# Which Tines Agent Skill is pushed to which team, and where each one is attached.
+#
+# Read by people and by the reviewer. `skills.yml` pushes every skill in this folder to the prod
+# team (../DESIGN.md §3.4); whether `scripts/tines skills-push` also reads this file to filter by
+# team is a decision for the `ci` builder — until then this is the record the reviewer checks
+# against stories/**/story.meta.yaml. No secrets. Team ids resolve through stories/_manifest.yaml
+# (environments.<env>.team_id, 0 until the first ship) — never a raw id here.
+#
+# This file was added after the first ../DESIGN.md draft and is now listed in §2.2 — see README.md §7.
+
+version: 1
+
+standard:
+  format: "Agent Skills (SKILL.md with YAML frontmatter and a Markdown body)"
+  name_rule: "^[a-z0-9]+(-[a-z0-9]+)*$ ; <= 64 chars ; equal to the directory ; unique per team ; never contains anthropic or claude"
+  description_rule: "<= 1024 chars ; third person ; says what it does and when to use it"
+  body_rule: "< 500 lines ; about 5,000 tokens ; references one level deep"
+  metadata_rule: "flat string map ; CI stamps git_sha and repo_path at push (accepted keys VERIFY #14)"
+
+push:
+  workflow: ".github/workflows/skills.yml"            # on push to main, paths tines-skills/**, environment: production
+  dispatcher: "./scripts/tines skills-push --team <team_id> [--dry-run] [--only <name>] [--delete <name> --confirm <name>]"
+  ide_skill: "/tines-skills-push <name> [--dev]"      # dry run; --dev pushes to the dev team for a live test
+  api:                                                # the only Skills API calls this repo makes (../DESIGN.md §3.4, §4.3)
+    read: "GET /api/v1/skills/<name>?team_id="
+    update: "PUT /api/v1/skills/<name>"               # team_id, description, body, license, compatibility, metadata
+    create: "POST /api/v1/skills"                     # team_id, name, description, body, license, compatibility, metadata
+    delete: "DELETE /api/v1/skills/<name>?team_id="   # workflow_dispatch + confirm_delete only
+  identity: "CI-prod"                                 # team-scoped Editor key for the prod team (policies/POLICY.md); never personal
+  attach_api: null                                    # none found — attaching is [BY HAND] (VERIFY #14)
+
+# Team scope uses the environment names from stories/_manifest.yaml. `dev` is where a skill is
+# tested with /tines-skills-push --dev; `prod` is what skills.yml pushes on merge. The ops trio
+# and its agents live in the dev and prod teams like every other story (../DESIGN.md §5.1).
+skills:
+  story-health-triage:
+    path: "tines-skills/story-health-triage/SKILL.md"
+    owner: ops                                        # a role, never a name
+    teams: [dev, prod]
+    attach:                                           # [BY HAND]; mirror into recorded_in after attaching
+      - kind: ai_agent_action
+        story: ops-story-health-monitor
+        action: triage
+        recorded_in: "stories/ops-story-health-monitor/story.meta.yaml -> ai.agents[name=triage].skills"
+      - kind: workbench_preset
+        preset: ops                                   # the Ops preset; the display name is set in the tenant
+        recorded_in: "tines-skills/_manifest.yaml"    # presets have no meta file; this entry is the record
+    budget_ref: "ops-story-health-monitor/triage"     # policies/cost-ceilings.yml -> agents.<budget_ref>
+    shared_block: false
+
+  credit-budget-analyst:
+    path: "tines-skills/credit-budget-analyst/SKILL.md"
+    owner: ops
+    teams: [dev, prod]
+    attach:
+      - kind: ai_agent_action
+        story: ops-story-health-monitor
+        action: triage
+        recorded_in: "stories/ops-story-health-monitor/story.meta.yaml -> ai.agents[name=triage].skills"
+      - kind: workbench_preset
+        preset: ops
+        recorded_in: "tines-skills/_manifest.yaml"
+    budget_ref: "ops-story-health-monitor/triage"
+    shared_block: false
+
+  alert-policy:                                       # listed in ../DESIGN.md §2.2 and §2.3 #12 — see README.md §7
+    path: "tines-skills/alert-policy/SKILL.md"
+    owner: ops
+    teams: [dev, prod]
+    attach:
+      - kind: workbench_preset
+        preset: ops
+        recorded_in: "tines-skills/_manifest.yaml"
+      # Optional third skill on `triage` (../DESIGN.md §5.4 names two). If attached, add:
+      # - kind: ai_agent_action
+      #   story: ops-story-health-monitor
+      #   action: triage
+      #   recorded_in: "stories/ops-story-health-monitor/story.meta.yaml -> ai.agents[name=triage].skills"
+    budget_ref: null                                  # not attached to an agent by default
+    shared_block: false
+
+  story-build-conventions:
+    path: "tines-skills/story-build-conventions/SKILL.md"
+    owner: platform
+    teams: [dev, prod]
+    attach:
+      - kind: workbench_preset
+        preset: builders                              # the Workbench for Storyboard preset builders use
+        recorded_in: "tines-skills/_manifest.yaml"
+        verify: "Whether Workbench for Storyboard honours preset skills is VERIFY #14"
+    budget_ref: null
+    shared_block: true                                # lint.yml checksums the marked block against AGENTS.md
+    referenced_by: [story-health-triage, alert-policy]  # the monitor measures against these rules; not attached to `triage` (../DESIGN.md §5.4 names two skills)
+
+  # The three runtime-specialist skills of [KIT] 00 · Run the story factory (../REPO-DESIGN.md §3.3 row 13, §5.3.11–§5.3.13).
+  # Each is attached to exactly one tool-less AI Agent action in section D, [BY HAND] (no attach API). The prod team IS the
+  # ops team (../REPO-DESIGN.md §7.1), so [dev, prod] already reaches the kit's agents through skills.yml; kit-sync.yml
+  # re-pushes them to the ops team on merge. Because a skill counts as an agentic capability, each of these actions has the
+  # fast model PINNED (recorded in stories/kit-factory/story.meta.yaml). Held-out cases: ../sdlc/evals/skills/<name>.cases.yaml.
+  backlog-planning:
+    path: "tines-skills/backlog-planning/SKILL.md"
+    owner: platform
+    teams: [dev, prod]
+    attach:
+      - kind: ai_agent_action
+        story: kit-factory
+        action: planner
+        recorded_in: "stories/kit-factory/story.meta.yaml -> ai.agents[name=planner].skills"
+    budget_ref: "kit-factory/planner"
+    shared_block: false
+
+  story-brief-writing:
+    path: "tines-skills/story-brief-writing/SKILL.md"
+    owner: platform
+    teams: [dev, prod]
+    attach:
+      - kind: ai_agent_action
+        story: kit-factory
+        action: brief_writer
+        recorded_in: "stories/kit-factory/story.meta.yaml -> ai.agents[name=brief_writer].skills"
+    budget_ref: "kit-factory/brief_writer"
+    shared_block: false
+
+  story-retrospective:
+    path: "tines-skills/story-retrospective/SKILL.md"
+    owner: platform
+    teams: [dev, prod]
+    attach:
+      - kind: ai_agent_action
+        story: kit-factory
+        action: retro_writer
+        recorded_in: "stories/kit-factory/story.meta.yaml -> ai.agents[name=retro_writer].skills"
+    budget_ref: "kit-factory/retro_writer"
+    shared_block: false
+
+# The `critic` agent of ops-story-health-monitor carries NO skills on purpose (tool-less, fast
+# model, confirm-or-downgrade only). Do not add an entry for it.

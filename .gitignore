@@ -1,0 +1,33 @@
+# --- secrets and per-person config (never committed) ---
+.env
+.env.*
+!.env.example
+.mcp.json
+.cursor/mcp.json
+.claude/settings.local.json
+CLAUDE.local.md
+
+# --- local scratch: MCP activity mirror, export scratch, proposal files ---
+.tines/
+*.export.tmp.json
+
+# --- local lifecycle state: .sdlc/active and .sdlc/out/<slug>/ (REPO-DESIGN.md §2); never committed ---
+.sdlc/
+
+# --- subagent memory (tines-builder `memory: local`): derived from tenant data and logs, local and untrusted ---
+.claude/agent-memory*/
+
+# --- Python bytecode (REPO-DESIGN.md §3.5) ---
+__pycache__/
+*.pyc
+
+# --- terraform (optional path) ---
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+!terraform/*.example.tfvars
+.terraform/
+.terraform.lock.hcl
+
+# --- OS / editor noise ---
+.DS_Store

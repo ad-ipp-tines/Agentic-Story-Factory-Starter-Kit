@@ -1,0 +1,391 @@
+# .github/workflows/lint.yml — the deterministic gate on every pull request (DESIGN.md §3.4).
+#
+# No model, no tenant, no Tines credentials. The only network use is PyPI (PyYAML) and the gitleaks image.
+# policies/lint-rules.yml says WHAT is checked; scripts/lint_story.py says HOW; this file wires the two to
+# the pull request and adds the checks that live outside a single export: committed secret files, manifest
+# consistency, Tines Agent Skills frontmatter, the shared conventions block, the secret-pattern scan,
+# gitleaks and the semantic-diff comment.
+#
+# Fork pull requests get a read-only GITHUB_TOKEN: every check still runs; only the comment step is skipped.
+#
+# The CODE that lints comes from the BASE branch (scripts/ checked out to $RUNNER_TEMP and named by $SCRIPTS):
+# lint_story.py, normalize.jq, tines_common.SECRET_PATTERNS, push_skills.py and diff_story.py, so a PR cannot neuter
+# the lint or the secret scan that judge it. The PR's own files — including its scripts/ — are the DATA (gitleaks still
+# scans the whole PR tree). The checkout persists no credential; the one write is the comment, through github-script.
+# sdlc.yml's guard holds a PR that changes this file or scripts/** until a security-platform review, because on
+# pull_request the caller's local `uses:` runs the PR's own copy of this workflow.
+#
+# Supply chain: nothing here downloads and runs an unpinned package (the Agent Skills validator step is removed until
+# it is confirmed — see below). The gitleaks image runs only when pinned BY DIGEST in GITLEAKS_IMAGE. The actions
+# below are still referenced by major tag: the security-platform owner pins each `uses:` to a full commit SHA it has
+# verified (VERIFY — the SHAs are not recorded in this repository; never invent one).
+
+name: lint
+
+# Triggers (REPO-DESIGN.md §3.3 row 18): no `pull_request` trigger of its own. sdlc.yml — the one required check, with
+# no paths filter — calls this workflow (workflow_call) on a pull request whose changes match the path list below,
+# so lint runs once per PR and never leaves a required check Pending on a tracker or kit PR. The list is the one the
+# `pull_request` trigger carried, unchanged; sdlc.yml reads it from between the two markers, so keep it here.
+# sdlc-call-paths begin
+#   - "stories/**"
+#   - "tines-skills/**"
+#   - "policies/**"
+#   - ".claude/skills/**"
+#   - "scripts/**"
+#   - "AGENTS.md"
+#   - ".github/workflows/lint.yml"
+# sdlc-call-paths end
+# Called from sdlc.yml, `github.event_name` is still `pull_request` (a called workflow sees the caller's event), so the
+# PR-only steps below behave as before.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write # the semantic-diff comment (same-repository PRs only)
+
+concurrency:
+  group: lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  # REQUIRED: the gitleaks image pinned BY DIGEST (ghcr.io/gitleaks/gitleaks@sha256:<64 hex>) after the
+  # security-platform owner has verified it. Never a tag — the container reads the whole tree. The gitleaks step
+  # fails (closed) until this is pinned. drift.yml carries the same variable; keep the two equal.
+  GITLEAKS_IMAGE: "ghcr.io/gitleaks/gitleaks@sha256:<pin-a-verified-digest>"
+
+jobs:
+  lint:
+    name: stories · skills · policies · secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out (full history — the semantic diff compares against the base branch)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out the base branch (the lint CODE — a PR cannot rewrite the lint that judges it)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .lint-base
+          persist-credentials: false
+
+      - name: Run the base branch's scripts/ (moved out of the tree gitleaks scans)
+        run: |
+          set -euo pipefail
+          mv .lint-base "${RUNNER_TEMP}/lint-base"
+          if [ -f "${RUNNER_TEMP}/lint-base/scripts/lint_story.py" ] && [ -f "${RUNNER_TEMP}/lint-base/scripts/tines_common.py" ]; then
+            echo "SCRIPTS=${RUNNER_TEMP}/lint-base/scripts" >> "$GITHUB_ENV"
+          else
+            echo "::warning title=lint::the base branch has no scripts/ yet (this PR introduces them): the PR's own scripts are used once"
+            echo "SCRIPTS=${GITHUB_WORKSPACE}/scripts" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install script dependencies (PyYAML for the manifest, meta and policy files — the base branch's list)
+        run: python -m pip install --quiet -r "$SCRIPTS/requirements.txt"
+
+      - name: Refuse committed secret and per-person files
+        run: |
+          set -euo pipefail
+          bad=0
+          for f in .env .mcp.json .cursor/mcp.json .claude/settings.local.json CLAUDE.local.md; do
+            if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::must never be committed (see .gitignore); rotate anything it held"
+              bad=1
+            fi
+          done
+          if git ls-files '.env.*' | grep -v '^\.env\.example$' | grep -q .; then
+            echo "::error::.env.* files must never be committed (only .env.example)"
+            bad=1
+          fi
+          exit "$bad"
+
+      - name: Every story.json is valid JSON and normalised (no exported_at)
+        run: |
+          set -euo pipefail
+          status=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if ! jq empty "$f" 2>/dev/null; then
+              echo "::error file=$f::invalid JSON"; status=1; continue
+            fi
+            if jq -e 'has("exported_at")' "$f" >/dev/null; then
+              echo "::error file=$f::contains exported_at — not normalised; re-run ./scripts/tines export <slug>"; status=1
+            fi
+          done < <(git ls-files 'stories/*/story.json' | grep -v '^stories/_template/' || true)
+          exit "$status"
+
+      - name: lint-story on the exports this change touches (rules from policies/lint-rules.yml, budgets from policies/cost-ceilings.yml)
+        # DESIGN.md §3.4: only CHANGED exports are linted (on workflow_dispatch: every committed export). A file whose
+        # top-level description starts with "SKELETON" is a labelled placeholder, not an export — the same check
+        # terraform/stories.tf uses — so it is skipped; the first /tines-export replaces it with a real export.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --quiet origin "${BASE_REF}" || true
+            candidates=$(git diff --name-only --diff-filter=d "origin/${BASE_REF}...HEAD" -- 'stories/*/story.json' | grep -v '^stories/_template/' || true)
+          else
+            candidates=$(git ls-files 'stories/*/story.json' | grep -v '^stories/_template/' || true)
+          fi
+          files=()
+          for f in $candidates; do
+            [ -f "$f" ] || continue
+            if jq -e '(.description // "") | startswith("SKELETON")' "$f" >/dev/null; then
+              echo "::notice file=${f},title=lint-story::labelled SKELETON, not an export — skipped (the first /tines-export replaces it)"
+              continue
+            fi
+            files+=("$f")
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::notice::no changed, non-skeleton story export in this change; lint-story skipped"
+            exit 0
+          fi
+          "$SCRIPTS/lint-story.sh" "${files[@]}" --format github
+
+      - name: Manifest consistency (stories/_manifest.yaml ↔ stories/<slug>/)
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys
+          import yaml
+
+          root = pathlib.Path(".")
+          manifest = yaml.safe_load((root / "stories/_manifest.yaml").read_text(encoding="utf-8")) or {}
+          envs = manifest.get("environments") or {}
+          stories = manifest.get("stories") or {}
+          errors = 0
+
+          def error(msg, file="stories/_manifest.yaml"):
+              global errors
+              errors += 1
+              print(f"::error file={file},title=manifest::{msg}")
+
+          for env in ("dev", "prod"):
+              if env not in envs:
+                  error(f"environment '{env}' is required (DESIGN.md §2.3 row 1)")
+          for env, cfg in envs.items():
+              if not isinstance(cfg, dict) or "team_id" not in cfg:
+                  error(f"environment '{env}' needs team_id")
+              for r in (cfg or {}).get("recipients") or []:
+                  if "://" in str(r) and "${" not in str(r):
+                      error(f"environment '{env}' has a literal webhook URL in recipients — use ${{OPS_ROUTER_URL}}")
+
+          folders = sorted(p for p in (root / "stories").iterdir() if p.is_dir() and not p.name.startswith("_"))
+          for folder in folders:
+              slug = folder.name
+              entry = stories.get(slug)
+              if entry is None:
+                  error(f"stories/{slug}/ has no manifest entry", file=f"stories/{slug}/README.md")
+                  continue
+              prod_id = ((entry.get("prod") or {}).get("story_id")) or 0
+              if not prod_id and not entry.get("new"):
+                  error(f"{slug}: needs prod.story_id (after the first ship) or new: true")
+              export = folder / "story.json"
+              meta = folder / "story.meta.yaml"
+              if not export.exists():
+                  print(f"::warning file=stories/{slug}/README.md,title=manifest::{slug}: no story.json yet (run /tines-export before shipping)")
+              if not meta.exists():
+                  error(f"{slug}: story.meta.yaml is missing (copy stories/_template/story.meta.yaml)", file=f"stories/{slug}/README.md")
+                  continue
+              m = yaml.safe_load(meta.read_text(encoding="utf-8")) or {}
+              if m.get("slug") not in (None, slug):
+                  error(f"{slug}: story.meta.yaml slug is {m.get('slug')!r}", file=f"stories/{slug}/story.meta.yaml")
+              if export.exists():
+                  import json
+                  name = (json.loads(export.read_text(encoding="utf-8")) or {}).get("name")
+                  if m.get("name") and name and m["name"] != name:
+                      error(f"{slug}: story.json name {name!r} != story.meta.yaml name {m['name']!r} (import matches by name)", file=f"stories/{slug}/story.meta.yaml")
+          for slug in stories:
+              if not (root / "stories" / slug).is_dir():
+                  print(f"::warning file=stories/_manifest.yaml,title=manifest::{slug} is in the manifest but has no stories/{slug}/ folder yet")
+          sys.exit(1 if errors else 0)
+          PY
+
+      - name: Tines Agent Skills frontmatter (tines-skills/**/SKILL.md)
+        run: |
+          set -euo pipefail
+          if ls tines-skills/*/SKILL.md >/dev/null 2>&1; then
+            "$SCRIPTS/tines" skills-push --validate-only
+          else
+            echo "::notice::no tines-skills/*/SKILL.md yet; skipped"
+          fi
+
+      # The Agent Skills reference validator (`skills-ref`) is NOT run here until its package and publisher are confirmed
+      # (docs/VERIFY.md #21): `npx --yes` would download and execute whatever is published under that name, in a job
+      # whose token can write PR comments. When it is confirmed, pin a verified package and version with integrity (a
+      # lockfile plus `npm ci`, or vendor it) and call it with `npx --no`. Until then the frontmatter checks above
+      # (`./scripts/tines skills-push --validate-only`) are the gate.
+
+      - name: Shared conventions block (story-build-conventions ↔ AGENTS.md)
+        run: |
+          python3 - <<'PY'
+          import hashlib, pathlib, re, sys
+
+          BEGIN = re.compile(r"<!-- shared-block: ([a-z0-9-]+) v(\d+) begin -->")
+          END = re.compile(r"<!-- shared-block: ([a-z0-9-]+) v(\d+) end -->")
+
+          def block(text):
+              b = BEGIN.search(text)
+              if not b:
+                  return None, None
+              e = END.search(text, b.end())
+              if not e or e.group(1) != b.group(1):
+                  return None, None
+              body = text[b.end():e.start()]
+              lines = [ln.rstrip() for ln in body.strip("\n").splitlines()]
+              return f"{b.group(1)} v{b.group(2)}", "\n".join(lines)
+
+          skill = pathlib.Path("tines-skills/story-build-conventions/SKILL.md")
+          agents = pathlib.Path("AGENTS.md")
+          if not skill.exists():
+              print("::notice::tines-skills/story-build-conventions/SKILL.md not present; shared-block check skipped")
+              sys.exit(0)
+          skill_id, skill_block = block(skill.read_text(encoding="utf-8"))
+          if skill_block is None:
+              print(f"::error file={skill},title=shared-block::no matching 'shared-block … begin/end' markers")
+              sys.exit(1)
+          agents_id, agents_block = block(agents.read_text(encoding="utf-8")) if agents.exists() else (None, None)
+          if agents_block is None:
+              print("::notice::AGENTS.md carries no shared-block markers; checksum comparison skipped — a reviewer checks the two by reading (tines-skills/README.md)")
+              sys.exit(0)
+          if skill_id != agents_id:
+              print(f"::error file={skill},title=shared-block::block version differs: {skill_id} vs AGENTS.md {agents_id} — bump both in one PR")
+              sys.exit(1)
+          h = lambda s: hashlib.sha256(s.encode("utf-8")).hexdigest()
+          if h(skill_block) != h(agents_block):
+              print(f"::error file={skill},title=shared-block::the shared block differs from AGENTS.md — a convention changes in both files in one PR")
+              sys.exit(1)
+          print(f"shared block {skill_id} matches AGENTS.md ({h(skill_block)[:12]})")
+          PY
+
+      - name: Secret patterns (the block-secrets.sh list) over stories, skills, policies, sdlc/, kit/, .claude/, .cursor/ and scripts/
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess, sys
+          sys.path.insert(0, os.environ["SCRIPTS"])   # the base branch's SECRET_PATTERNS, never the PR's
+          from tines_common import EMAIL_RE, SECRET_PATTERNS, is_placeholder_email
+
+          # The same list the editor hook and lint_story.py use, applied to every committed file that carries
+          # story or skill content, and to the lifecycle and kit trees where Tines-sourced briefs, retros and findings
+          # land (tracker-fold, apply) and the agent and editor configuration. Only the files that list the patterns
+          # themselves are skipped; gitleaks (next step) covers the whole tree with entropy-based rules.
+          files = subprocess.run(["git", "ls-files", "stories", "tines-skills", "policies", ".github", "docs", "terraform", "README.md", "AGENTS.md",
+                                  "sdlc", "kit", ".claude", ".cursor", "scripts"],
+                                 capture_output=True, text=True, check=True).stdout.split()
+          skip = {"policies/lint-rules.yml", "scripts/tines_common.py", ".claude/hooks/block-secrets.sh"}   # the pattern lists
+          bad = 0
+          for f in files:
+              if f in skip:
+                  continue
+              try:
+                  text = pathlib.Path(f).read_text(encoding="utf-8")
+              except (UnicodeDecodeError, OSError):
+                  continue
+              for i, line in enumerate(text.splitlines(), 1):
+                  for name, pattern in SECRET_PATTERNS:
+                      if name == "x-user-token-header" and not f.startswith(("stories/", "tines-skills/")):
+                          continue  # a header NAME is only a finding inside an export or a skill body
+                      if pattern.search(line):
+                          print(f"::error file={f},line={i},title=secret-pattern::{name}")
+                          bad += 1
+                  if f.startswith(("stories/", "tines-skills/")):
+                      for m in EMAIL_RE.finditer(line):
+                          if not is_placeholder_email(m.group(0)):
+                              print(f"::error file={f},line={i},title=email::real-looking email address (use *.invalid placeholders)")
+                              bad += 1
+          print(f"scanned {len(files)} files; {bad} finding(s)")
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: gitleaks (whole tree, default rules + the Tines ingress-identifier rule)
+        # The gitleaks CLI is MIT-licensed; the licence key the GitHub Action asks organisations for is not needed
+        # when the container is run directly. The image runs only when pinned by digest (GITLEAKS_IMAGE above).
+        # The custom rule mirrors lint_story.py `webhook_secret_in_export`: a Webhook or MCP server action's `path` or
+        # `secret` must be the <assigned-on-import> placeholder scripts/normalize.jq writes, never a live value.
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$GITLEAKS_IMAGE" | grep -Eq '^[a-z0-9./_-]+@sha256:[0-9a-f]{64}$'; then
+            echo "::error title=gitleaks::GITLEAKS_IMAGE is '${GITLEAKS_IMAGE}', not pinned by digest — pin a verified ghcr.io/gitleaks/gitleaks@sha256:<digest> in lint.yml and drift.yml"
+            exit 1
+          fi
+          cfg="${RUNNER_TEMP}/gitleaks.toml"
+          cat > "$cfg" <<'TOML'
+          title = "tines-stories-as-code"
+
+          [extend]
+          useDefault = true
+
+          [[rules]]
+          id = "tines-ingress-identifier"
+          description = "A Tines action's ingress path or secret in a committed story export (scripts/normalize.jq writes <assigned-on-import>)"
+          regex = '''"(?:path|secret)"\s*:\s*"([A-Fa-f0-9]{32,})"'''
+          secretGroup = 1
+          path = '''stories/[^/]+/story\.json$'''
+          keywords = ["path", "secret"]
+          TOML
+          docker run --rm -v "${PWD}:/repo:ro" -v "${cfg}:/config/gitleaks.toml:ro" "$GITLEAKS_IMAGE" \
+            detect --source /repo --no-git --redact --exit-code 1 --verbose --config /config/gitleaks.toml
+
+      - name: Semantic diff of changed exports (scripts/diff_story.py)
+        if: github.event_name == 'pull_request'
+        id: diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          base="origin/${BASE_REF}"
+          git fetch --no-tags --quiet origin "${BASE_REF}" || true
+          out="${RUNNER_TEMP}/semantic-diff.md"
+          : > "$out"
+          changed=$(git diff --name-only "${base}...HEAD" -- 'stories/*/story.json' | grep -v '^stories/_template/' || true)
+          if [ -z "$changed" ]; then
+            echo "_No story exports changed in this pull request._" >> "$out"
+          fi
+          for f in $changed; do
+            if [ -f "$f" ]; then
+              python3 "$SCRIPTS/diff_story.py" "$f" --against "$base" >> "$out" || echo "- diff failed for \`$f\`" >> "$out"
+            else
+              echo "### \`$f\` was removed — a story delete is a by-hand act in Tines, not a ship" >> "$out"
+            fi
+            echo >> "$out"
+          done
+          {
+            echo "## Semantic diff"
+            cat "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Post the semantic diff as a PR comment (same-repository PRs only)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        env:
+          DIFF_PATH: ${{ steps.diff.outputs.path }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- tines-lint: semantic-diff -->';
+            let text = fs.readFileSync(process.env.DIFF_PATH, 'utf8');
+            const cap = 60000;
+            if (text.length > cap) text = text.slice(0, cap) + '\n\n_…truncated; see the job summary._\n';
+            const body = `${marker}\n## Semantic diff (scripts/diff_story.py)\n\n${text}\n_Paste the relevant part into the PR body under **What changed**; \`ship.yml\` embeds it in the change-request description._`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const mine = comments.find(c => c.body && c.body.startsWith(marker));
+            if (mine) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

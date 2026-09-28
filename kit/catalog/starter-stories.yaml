@@ -1,0 +1,199 @@
+# kit/catalog/starter-stories.yaml — the ten starter stories the kickoff Page offers, plus the one always seeded.
+#
+# Spec: REPO-DESIGN.md §11 (table and rules), §7.2 A2 and A21, §7.8 (the kickoff Page's `use_cases` loop).
+#
+# Who reads it
+#   - `./scripts/kit bundle` → the kit_catalog Resource (kit/resources/kit_catalog.example.json shows the result).
+#     The kickoff Page's `pick` Option list is `page_pick_options` there: these keys + `custom` + `none`.
+#   - [KIT] 00 A2 `normalize` copies key, title, library_seed_id, mode and owner for every pick, and computes
+#     target_date = provisioned_at + target_offset_days (UTC). A21 seeds one sdlc_backlog row per pick, plus the
+#     `always_seeded` rows when absent.
+#   - `./scripts/kit apply-config --targets tracker` fills an EMPTY target_date the same way on the Community path,
+#     where no kit story runs (kit/docs/community-path.md).
+#
+# Rules (§11)
+#   - library_seed_id comes only from kit/catalog/library-seeds.yaml (null = none). A seed is read, never shipped;
+#     importing it into the Seeds folder is [BY HAND].
+#   - Credits: only the AI Agent action, Workbench and Workbench for Storyboard consume credits. Every story without
+#     them is 0. `monthly: null` means "set at design": runs/day × credits/run observed in dev × 30
+#     (./scripts/sdlc estimate), never a guess written here.
+#   - Owners are roles, never people. Titles follow `[PREFIX] NN · Verb noun`; a sub-story ends in (sub).
+#   - Mode values are the tracker's: none | sub-story | mode-1-preset | mode-3-agent | mode-4-server.
+#   - needs.entitlements uses the key names of kit/tenant/config.example.yaml `entitlements` (pages, apps, cases,
+#     records, ai_agent_action, change_control, tunnel); needs.other names what the kickoff Page does not ask about.
+#   - milestone: day-1 | week-1 | week-4 | after-week-4 (kit/tracker/milestones.yaml holds the three milestones).
+
+version: 1
+
+target_offset_days_by_milestone: { day-1: 1, week-1: 7, week-4: 28, after-week-4: 56 }
+
+always_seeded: [example-enrich-ip, ops-story-health-monitor]   # A21 seeds both when absent, whatever the Page picks
+
+stories:
+  - n: 1
+    key: example-enrich-ip
+    title: "[SEC] 01 · Enrich IP (sub)"
+    use_case: "Enrich an IP from several reputation services and return one verdict."
+    library_seed_id: 87626
+    mode: sub-story
+    tier: production
+    owner: security-automation
+    milestone: week-1                     # day 1: intake → design; shipped in week 1
+    target_offset_days: 7
+    credit_estimate: { monthly: 0, basis: "no AI Agent action" }
+    needs: { entitlements: [], other: ["Records, optionally, for its ioc_cache pattern"] }
+    in_scaffold: true                     # stories/example-enrich-ip/ already exists
+    page_pick: true
+
+  - n: 2
+    key: ops-error-router
+    title: "[OPS] 01 · Route monitoring alerts"
+    use_case: "Receive every production story's monitoring notifications, dedupe them and route them to the ops channel."
+    library_seed_id: 1231438
+    mode: none
+    tier: ops
+    owner: ops
+    milestone: week-1
+    target_offset_days: 7
+    credit_estimate: { monthly: 0, basis: "no AI Agent action" }
+    needs: { entitlements: [records], other: ["Slack, optionally"] }
+    in_scaffold: true                     # a labelled SKELETON export in the scaffold; the lifecycle builds it
+    page_pick: true
+
+  - n: 3
+    key: ip-info-tool
+    title: "[SEC] 02 · Get IP address information (sub)"
+    use_case: "Return address information for one IP as a sub-story that can also be enabled as a Workbench tool."
+    library_seed_id: 1252750
+    mode: sub-story
+    mode_note: "also enabled as a Workbench tool"
+    tier: production
+    owner: security-automation
+    milestone: week-1
+    target_offset_days: 7
+    credit_estimate: { monthly: 0, basis: "no AI Agent action; Workbench conversations that call it spend Workbench credits" }
+    needs: { entitlements: [], other: [] }
+    in_scaffold: false
+    page_pick: true
+
+  - n: 4
+    key: slack-approval-callbacks
+    title: "[PLT] 01 · Handle Slack approval callbacks (sub)"
+    use_case: "Receive Slack interactivity callbacks and hand each approval to the story that asked for it."
+    library_seed_id: 1321120
+    mode: sub-story
+    tier: production
+    owner: platform
+    milestone: week-1
+    target_offset_days: 7
+    credit_estimate: { monthly: 0, basis: "no AI Agent action" }
+    needs: { entitlements: [], other: ["a Slack app and its credential (lets gates be decided from Slack later)"] }
+    in_scaffold: false
+    page_pick: true
+
+  - n: 5
+    key: long-job-status
+    title: "[PLT] 02 · Track long-running jobs (sub)"
+    use_case: "Start a long-running job, return a handle at once, and let callers check its status later."
+    library_seed_id: 1253511
+    mode: sub-story
+    tier: production
+    owner: platform
+    milestone: week-4
+    target_offset_days: 28
+    credit_estimate: { monthly: 0, basis: "no AI Agent action" }
+    needs: { entitlements: [], other: ["the pattern for any tool that would exceed Mode 4's 30-second limit"] }
+    in_scaffold: false
+    page_pick: true
+
+  - n: 6
+    key: enrichment-api
+    title: "[PLT] 03 · Serve IP enrichment as an API"
+    use_case: "Expose IP enrichment to other systems as an authenticated API."
+    library_seed_id: 1173034
+    mode: none
+    tier: production
+    owner: platform
+    milestone: week-4
+    target_offset_days: 28
+    credit_estimate: { monthly: 0, basis: "no AI Agent action" }
+    needs: { entitlements: [], other: ["Workflow as API (Advanced Workflows)"] }
+    in_scaffold: false
+    page_pick: true
+
+  - n: 7
+    key: ioc-lookup-slack-agent
+    title: "[SEC] 03 · Look up IOCs from Slack with an agent"
+    use_case: "Let an analyst ask in Slack about an indicator and get an agent's summary from the enrichment tools."
+    library_seed_id: 1347799
+    mode: mode-3-agent
+    tier: production
+    owner: security-automation
+    milestone: week-4
+    target_offset_days: 28
+    credit_estimate: { monthly: null, basis: "set at design: runs/day × credits/run observed in dev × 30" }
+    needs: { entitlements: [ai_agent_action], other: ["Slack"] }
+    in_scaffold: false
+    page_pick: true
+
+  - n: 8
+    key: ops-tools-server
+    title: "[OPS] 20 · Ops tools (MCP server)"
+    use_case: "Serve the ops read tools to AI clients as an MCP server."
+    library_seed_id: 1324549              # reference only: read it, never ship it
+    mode: mode-4-server
+    tier: ops
+    owner: ops
+    milestone: week-4
+    target_offset_days: 28
+    credit_estimate: { monthly: 0, basis: "Mode 4 uses no model; it counts as a flow" }
+    needs: { entitlements: [], other: ["all plans"] }
+    in_scaffold: true                     # a labelled SKELETON export in the scaffold; the lifecycle builds it
+    page_pick: true
+
+  - n: 9
+    key: alert-to-workbench
+    title: "[PLT] 04 · Open alerts in Workbench from Slack"
+    use_case: "Post alerts to Slack with a link that opens Workbench on the alert, with a preset that reaches the ops tools."
+    library_seed_id: 1258068
+    mode: mode-1-preset
+    mode_note: "the Workbench preset it opens carries one MCP connection, to [OPS] 20"
+    tier: internal
+    owner: platform
+    milestone: after-week-4
+    target_offset_days: 56
+    credit_estimate: { monthly: null, basis: "set at design: Workbench conversations draw on unallocated credits, or on the preset team's allocation" }
+    needs: { entitlements: [], other: ["Workbench (CONFLICT K28: add-on or included)", "Slack"] }
+    in_scaffold: false
+    page_pick: true
+
+  - n: 10
+    key: research-agent
+    title: "[PLT] 05 · Research a topic with an agent"
+    use_case: "Research a topic with an agent that searches the web and returns a sourced summary."
+    library_seed_id: 1318509
+    mode: mode-3-agent
+    tier: internal
+    owner: platform
+    milestone: after-week-4
+    target_offset_days: 56
+    credit_estimate: { monthly: null, basis: "set at design" }
+    needs: { entitlements: [ai_agent_action], other: ["an external search credential"] }
+    in_scaffold: false
+    page_pick: true
+
+  - n: 11                                 # "+" in §11: always seeded, never a Page pick
+    key: ops-story-health-monitor
+    title: "[OPS] 10 · Monitor story health and credits"
+    use_case: "Sweep every production story for failures, silence and credit burn, and propose fixes for a human to approve."
+    library_seed_id: null                 # the scaffold's own design
+    mode: mode-3-agent
+    mode_note: "triage with five read-only Send to Story tools; tool-less critic"
+    tier: ops
+    owner: ops
+    milestone: week-1                     # built and live in week 1; running with baselines by week 4
+    target_offset_days: 7
+    credit_estimate: { monthly: null, basis: "set at design: sweep runs/day × observed triage and critic credits × 30" }
+    needs: { entitlements: [records, ai_agent_action], other: ["its six Record types, created by hand (Import step 1)"] }
+    in_scaffold: true
+    page_pick: false

@@ -1,0 +1,194 @@
+# policies/lint-rules.yml — the rule set scripts/lint-story.sh enforces.
+#
+# Read this file to know WHAT the gate checks; read the script only to know HOW.
+# The same rules run in three places: the PostToolUse hook (lint-on-write.sh), /tines-export, and lint.yml.
+#
+# What scripts/lint_story.py reads from this file: each rule's `severity` (error | warning | info | off),
+# `enabled: false`, and `params.days_min` for keep_events_min_days_prod. Everything else here is documentation.
+# The export keys and type names are HARD-CODED in lint_story.py (its RULES table tags each rule
+# `confirmed` — the key was read on real exports, per the script — or `VERIFY`); they are not read from here.
+#
+# severity: error   -> blocks (hook exit 2; lint.yml fails; the reviewer returns a blocker)
+#           warning -> reported, never blocks
+#           A rule lint_story.py still tags VERIFY is capped at `warning` even when this file says `error`.
+# key:      the export key lint_story.py reads, for the reader. VERIFY = lint_story.py has not observed the key
+#           yet. When one real export confirms a key: set it in lint_story.py, change the `key:` here, and
+#           record it in docs/VERIFY.md #8 (the ledger row stays `open` until a person does).
+# applies_to: story | action:<type alias> | meta | tools
+#
+# Export type names (aliases used below), as lint_story.py matches them.
+agent_types:
+  http_request: "Agents::HTTPRequestAgent"
+  event_transform: "Agents::EventTransformationAgent"
+  ai_agent: "Agents::LLMAgent"
+  trigger: "Agents::TriggerAgent"
+  send_to_story: "Agents::SendToStoryAgent"
+  webhook: "Agents::WebhookAgent"
+  group: "Agents::GroupAgent"
+  mcp_tool: "Agents::McpRequestAgent"                 # an MCP tool on an AI Agent action (agents[].tools[])
+  mcp_server: VERIFY                                  # the MCP server action's type string was not observed
+  note: "(not an agent: story.json diagram_notes[])"
+
+# Credential / resource reference forms inside options, as lint_story.py matches them
+# (scripts/tines_common.py CREDENTIAL_REF_RE / RESOURCE_REF_RE).
+reference_syntax:
+  credential: "<<CREDENTIAL.name>>"         # also CREDENTIAL.name inside a formula (=…)
+  resource: "<<RESOURCE.name>>"             # also RESOURCE.name or RESOURCE[expr] inside a formula
+
+# Secret patterns are NOT listed here. The one list is scripts/tines_common.py SECRET_PATTERNS:
+# lint_story.py applies it to exports, lint.yml's secret-pattern step to committed files, and
+# .claude/hooks/block-secrets.sh mirrors it. Email addresses in an export are their own rule (email_in_export).
+secret_patterns: "scripts/tines_common.py: SECRET_PATTERNS"
+
+rules:
+  - id: valid_export
+    severity: error
+    applies_to: story
+    check: "story.json parses; has schema_version, name, description, agents[], links[]; contains no exported_at (normalised)"
+
+  - id: naming
+    severity: error
+    applies_to: story
+    check: "name matches ^\\[[A-Z]+\\] [0-9]{2} · .+ ; equals story.meta.yaml.name ; sub-stories end in ' (sub)'"
+
+  - id: unique_action_names
+    severity: error
+    applies_to: story
+    check: "every agent has a non-empty name and description; no duplicate names"
+
+  - id: note_required
+    severity: error
+    applies_to: story
+    check: "at least one note action exists whose text names the purpose and a mode badge (Mode 1-4 or none)"
+    key: diagram_notes[]                      # the mode badge itself is rule mode_badge (info)
+
+  - id: substory_result_et
+    severity: error
+    applies_to: story
+    when: "name ends in ' (sub)'"
+    check: "an event_transform named `result` exists in message-only mode; an event_transform named `error` exists on the failure path"
+    key: options.mode == message_only
+
+  - id: http_retry_bounds
+    severity: error
+    applies_to: action:http_request
+    check: "retry_on_status is present and includes 429 and 500-599; retries between 1 and 8"
+    params: { retries_max: 8, retry_on_status_must_include: [429, "500-599"] }
+    key: options.retry_on_status              # the retries-count key (options.retries) is still VERIFY and only checked when present
+
+  - id: http_emit_failure_event_always
+    severity: error
+    applies_to: action:http_request
+    check: "emit_failure_event is set to Always (not the default 'Error response only')"
+    key: VERIFY
+
+  - id: expected_status_excluded
+    severity: warning
+    applies_to: action:http_request
+    check: "an action whose name or Note says it expects a non-2xx (lock 422, empty-lookup 404) excludes it from log_error_on_status"
+    key: VERIFY
+
+  - id: http_failure_path_connected
+    severity: warning
+    applies_to: action:http_request
+    check: "the action's failure output is linked (to `error` or a dead-letter write)"
+    key: VERIFY                               # how failure links are represented in links[]
+
+  - id: sts_timeout_required
+    severity: error
+    applies_to: action:send_to_story
+    check: "a Timeout Duration is set when the sub-story is used as a tool"
+    key: VERIFY
+
+  - id: agent_output_schema_required
+    severity: error
+    applies_to: action:ai_agent
+    check: "an output schema option is present and non-empty"
+    key: options.output_structure
+
+  - id: agent_post_trigger_required
+    severity: error
+    applies_to: action:ai_agent
+    check: "at least one trigger is linked directly after the agent and its rule references a schema field (severity | proposed_change.kind | needs_human), never confidence"
+    key: "links[] {source, receiver} by agent index"
+
+  - id: agent_tool_cap
+    severity: warning
+    applies_to: action:ai_agent
+    check: "at most five tools; at most one MCP connection; never both an MCP connection and a Send to Story set"
+    params: { tools_max: 5, mcp_connections_max: 1 }
+    key: "agents[].tools[]"
+
+  - id: ai_agent_budget_line_present
+    severity: error
+    applies_to: meta
+    check: "every ai_agent action appears in story.meta.yaml ai.agents[] with output_schema: true, token_alert {notify, disable} and a budget_ref that exists in policies/cost-ceilings.yml agents"
+
+  - id: no_inline_secret
+    severity: error
+    applies_to: story
+    check: "no options value matches any scripts/tines_common.py SECRET_PATTERNS entry"
+
+  - id: webhook_secret_in_export
+    severity: error
+    applies_to: story
+    check: "no action of ANY type carries a real ingress identifier: options.path (when not a formula) and options.secret must be the <assigned-on-import> placeholder that scripts/normalize.jq writes"
+    key: "agents[].options.path, agents[].options.secret — matched by key name, not by action type (Webhook and MCP server actions alike)"
+
+  - id: credentials_declared
+    severity: error
+    applies_to: meta
+    check: "every credential and resource referenced in options (reference_syntax) is listed in story.meta.yaml credentials[] / resources[]"
+    key: "CREDENTIAL.<name> / RESOURCE.<name> (reference_syntax)"
+
+  - id: monitoring_required_for_prod
+    severity: error
+    applies_to: meta
+    when: "meta.tier == production"
+    check: "monitoring.monitor_failures == true; monitoring.recipients == manifest; no_events_watchdog set on the entry or scheduled action"
+
+  - id: schedule_sanity
+    severity: error
+    applies_to: story
+    check: "no schedule shorter than 1 minute; no schedule inside a group; meta.schedule_interval_seconds matches the schedule"
+    key: VERIFY
+
+  - id: keep_events_min_days_prod
+    severity: error
+    applies_to: story
+    when: "meta.tier == production"
+    check: "event retention >= 30 days"
+    params: { days_min: 30 }
+    key: keep_events_for                      # in seconds
+
+  - id: tools_are_requests
+    severity: error
+    applies_to: tools
+    check: "any tool name (Mode 3 tool or Mode 4 server tool) matching block|delete|isolate|disable starts with request_"
+    params: { pattern: "(block|delete|isolate|disable)", required_prefix: "request_" }
+    key: "agents[].tools[] (options.tool_name); MCP server action tool names VERIFY"
+
+  - id: mode4_read_only_hints
+    severity: warning
+    applies_to: tools
+    when: "meta.mode == mode-4-server"
+    check: "every tool named ops_get_* or *_get_* / *_list_* carries Tool hints: Read only"
+    key: VERIFY
+
+  - id: never_touch_targets                 # NOT implemented in lint_story.py and NOT a lint gate: documentation only. Enforced at
+    severity: off                           # write time by guard-mcp.sh, set_monitoring.py and story_disable.py (policies/never-touch.yml header)
+    applies_to: story
+    check: "no action targets a story id, name pattern or team listed in policies/never-touch.yml for a write (disable, recipients, update)"
+
+  - id: manifest_consistency
+    severity: error
+    applies_to: meta
+    check: "stories/<slug> has a manifest entry with prod.story_id or new: true; meta.slug equals the folder name"
+
+# Output contract of scripts/lint-story.sh (scripts/lint_story.py):
+#   text:    one line per finding  ->  <path>: <rule id>: <severity>:[ [<action>]] <message>[ (VERIFY)]
+#   github:  --format github  ->  ::error|warning|notice file=<path>,title=<rule id>::<message>
+#   json:    --format json  ->  { "files": [ { "path", "findings": [ { "rule", "severity", "message", "agent", "path", "verify" } ],
+#                                              "skipped": [...], "summary": { "errors", "warnings", "info" } } ],
+#                                 "summary": { "errors", "warnings" } }
+#   exit:    1 if any error-severity finding; 0 otherwise (warnings and info are printed)

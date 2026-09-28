@@ -1,0 +1,111 @@
+{
+  "items": [
+    {
+      "key": "example-enrich-ip",
+      "base_rev": 1,
+      "outbox_seq": 3,
+      "source": "kickoff_page",
+      "changes": {
+        "phase": "discover",
+        "status": "active",
+        "open_gate": "none"
+      },
+      "brief_md": "---\nstory_key: example-enrich-ip\ntitle: \"[SEC] NN · Enrich IP (sub)\"\nowner: security-automation\nsource: kickoff_page\ndrafted_by: brief_writer\ndata_sensitivity: internal\nsimplest_rung: 2\ncandidate_seed_ids: [87626]\n---\n\n# Intake brief — `example-enrich-ip` · [SEC] NN · Enrich IP (sub)\n\n_Drafted by `brief_writer` (Tines-side, tool-less) — a proposal for the G0 decider, never the decision._\n\n## Use case (as submitted)\n\n> Enrich an IP from several reputation services and return one verdict.\n\n## Problem\n\nAnalysts look up each external IP in several reputation services by hand and reconcile the answers themselves.\n\n## Trigger or entry\n\n`send_to_story` — other alert stories call it with one IP.\n\n## Systems touched\n\n| System | Access | Credential name |\n|---|---|---|\n| IP reputation service (one or more) | read | [TBD — the owner names the services at discovery] |\n\n## Success metric\n\n[TBD — the owner states the baseline time per lookup]\n\n## Volume estimate\n\n[TBD — how many calls a day the calling stories make]\n\n## Human touchpoints\n\n- None inside the story: it returns a verdict; the calling story decides what to do with it.\n\n## Data sensitivity\n\n`internal` — IP addresses from alerts; no personal data stated.\n\n## Simplest rung\n\nRung 2 (Send to Story sub-story): a reusable lookup other stories call. Rung 1 alone would duplicate the lookups in every caller.\n\n## Candidate Library seeds\n\n- 87626 — Analyze an IP in many services at once\n\n## Open questions\n\n| Question | Who answers |\n|---|---|\n| Which reputation services, and which credentials exist for them? | the story owner |\n| What is the expected call volume per day? | the story owner |\n"
+    },
+    {
+      "key": "triage-suspicious-login-alerts",
+      "base_rev": 0,
+      "outbox_seq": 1,
+      "source": "add_use_case_page",
+      "changes": {
+        "story_key": "triage-suspicious-login-alerts",
+        "title": "Triage suspicious login alerts",
+        "use_case": "Today an analyst checks each suspicious-login alert by hand in two consoles, about 30 a day. Enrich the source IP, look up the account's recent logins, and propose close or escalate for a person to confirm.",
+        "library_seed_id": null,
+        "mode": "none",
+        "owner": "security-automation",
+        "tier": "production",
+        "phase": "intake",
+        "status": "active",
+        "open_gate": "none",
+        "attempt": 0,
+        "target_date": "2026-11-02T00:00:00Z",
+        "credit_estimate_monthly": null,
+        "credit_estimate_basis": "set at design",
+        "provider": "none",
+        "design_pr": "",
+        "build_pr": "",
+        "change_request_id": "",
+        "prod_story_id": 0,
+        "live_since": null,
+        "rev": 0
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "milestone_id": "day-1",
+      "base_rev": 1,
+      "changes": {
+        "status": "in_progress",
+        "evidence_ref": "kit/tenant/setup-report.json"
+      }
+    }
+  ],
+  "events": [
+    {
+      "story_key": "example-enrich-ip",
+      "event_type": "specialist_run",
+      "from_phase": "none",
+      "to_phase": "none",
+      "gate": "none",
+      "decision": "",
+      "actor": "brief_writer",
+      "actor_kind": "agent",
+      "agent": "brief_writer",
+      "model": "<the tenant's fast model, as reported>",
+      "credits_used": 0.4,
+      "summary": "Drafted the intake brief; G0 opened.",
+      "ref": "",
+      "tracker_rev": 1,
+      "source_sha": "",
+      "created_at": "2026-10-01T09:20:00Z"
+    },
+    {
+      "story_key": "example-enrich-ip",
+      "event_type": "gate_decision",
+      "from_phase": "intake",
+      "to_phase": "discover",
+      "gate": "G0",
+      "decision": "build",
+      "actor": "G0-approver",
+      "actor_kind": "human",
+      "agent": "",
+      "model": "",
+      "credits_used": null,
+      "summary": "Build it: every alert story needs one IP verdict.",
+      "ref": "",
+      "tracker_rev": 1,
+      "source_sha": "",
+      "created_at": "2026-10-01T10:05:00Z"
+    },
+    {
+      "story_key": "triage-suspicious-login-alerts",
+      "event_type": "transition",
+      "from_phase": "none",
+      "to_phase": "intake",
+      "gate": "none",
+      "decision": "",
+      "actor": "security-automation",
+      "actor_kind": "human",
+      "agent": "",
+      "model": "",
+      "credits_used": null,
+      "summary": "use case added from add_use_case_page",
+      "ref": "",
+      "tracker_rev": 0,
+      "source_sha": "",
+      "created_at": "2026-10-01T11:00:00Z"
+    }
+  ]
+}

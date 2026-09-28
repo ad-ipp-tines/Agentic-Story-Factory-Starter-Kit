@@ -1,0 +1,42 @@
+# story.meta.yaml — [OPS] 17 · Request approval (sub). Contract: ./README.md; callers: request_approval (#48) in
+# ../ops-story-health-monitor/story.json and the two request tools in ../ops-tools-server/.
+# Names only; never a value, never a hostname, never a person. NOT BUILT YET — no story.json until the first /tines-export.
+
+slug: ops-request-approval
+name: "[OPS] 17 · Request approval (sub)"    # must equal story.json name
+mode: sub-story                               # Send to Story target of the sweep (not its agent) and of the Mode 4 request tools
+owner_team: OPS                               # the [OPS] prefix; owner role: ops; CODEOWNERS: security-platform
+tier: ops
+change_control: required
+locked_in_prod: true                          # `locked: true` via ./scripts/tines story-update after ship (see _manifest.yaml locked_slugs)
+never_touch: true                             # policies/never-touch.yml name pattern ^\[OPS\]; changed only through its own change request
+
+monitoring:
+  monitor_failures: true                      # story-level "Notify when any action fails"
+  recipients: manifest                        # resolved by ship.yml from _manifest.yaml
+  no_events_watchdog: null                    # event-driven
+
+keep_events_for_days: 30                      # raised [BY HAND] above the 7-day default
+
+credentials:
+  - slack_bot                                 # the Slack bot token as a credential; allowed_hosts = the Slack API host; posts the Block Kit approval
+resources:
+  - ops_limits                                # never_touch mirror, max_proposals_per_day, proposal_expiry_hours
+  - ops_routing                               # _approvals channel
+  - ops_responders                            # approvers per kind; two_required_for
+records:
+  - ops_alert_proposals                       # written here (status: pending); fields in ../ops-story-health-monitor/records/record-types.md
+
+ai:
+  agents: []                                  # no AI Agent action
+
+schedule_interval_seconds: 0                  # event-driven
+
+send_to_story:
+  access: team
+  timeout_seconds: 25                         # under the Mode 4 server's 30-second tool ceiling
+
+inputs: [kind, story_id, action_id, type, value, rationale, requester, finding_id]
+result_fields: [approval_id, status, approvers, expires_at]
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export; never typed

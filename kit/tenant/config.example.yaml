@@ -1,0 +1,69 @@
+# kit/tenant/config.example.yaml — the SHAPE of kit/tenant/config.yaml (placeholders only).
+#
+# Spec: REPO-DESIGN.md §7.2 A2 (normalize builds `config`) and A16 (write_config commits it), §8.2 (kit_config).
+#
+# kit/tenant/config.yaml is the tenant-specific config commit. [KIT] 00 writes it once, on day 1, straight to main
+# of the brand-new repository (A16: PUT …/contents/kit/tenant/config.yaml). A16 writes it as JSON, which a YAML 1.2
+# parser reads, so no YAML serialiser is needed in formulas; the keys are exactly the ones below. On the Community
+# path (no kit story) you copy this file to kit/tenant/config.yaml and fill it in by hand (kit/docs/community-path.md).
+#
+# It NEVER holds: the tenant host, an email address, a credential value, a token or a webhook URL. The tenant host
+# lives only in the kit_config Resource inside the tenant; approver emails live only in the sdlc_approvers Resource;
+# credentials are referenced by NAME.
+#
+# Readers
+#   ./scripts/kit apply-config   → stories/_manifest.yaml team ids, policies/never-touch.yml (the prod team),
+#                                  policies/cost-ceilings.yml (team ids, the kit agents' provider), and the tracker
+#                                  (empty due dates and target dates, the provider of AI rows)       — kit.yml
+#   ./scripts/kit sync-resources → the kit_config Resource (+ tenant_host from the workflow environment) — kit-sync.yml
+#   ./scripts/sdlc               → entitlements (G1's fit check; dispatch-rules.yaml runtime_specialists_enabled)
+#   story-scout, story-architect → entitlement fit (sdlc/lifecycle/dispatch-rules.yaml inputs, kind tenant_config)
+# Change it only by PR (CODEOWNERS: /kit/** → security-platform); every merge re-syncs kit_config.
+
+schema_version: 1
+kit_run: "<run-guid>"                        # STORY_RUN_GUID() of the provisioning run
+provisioned_at: "YYYY-MM-DDTHH:MM:SSZ"       # UTC with Z; milestone due dates and target dates count from here
+company_name: "<your-company>"
+
+teams:                                        # resolved by name in A5/A6 (GET /api/v1/teams?scope=standard)
+  dev:  { name: "<dev team name>",  id: 0 }   # where every build happens (Mode 2); never a personal team
+  prod: { name: "<prod team name>", id: 0 }   # the prod team IS the ops team: [KIT] 00, the ops trio, their Records and Resources
+
+plan:
+  tier: business                              # community_edition | business | enterprise
+  licensed_teams: 2                           # teams are an add-on; fewer than 2 → the manual path (A3b)
+  self_hosted: false
+
+entitlements:                                 # what was purchased — the kit branches on these and never assumes
+  pages: true                                 # Pages are in every edition
+  apps: false                                 # add-on; Apps limits are CONFLICT K19
+  cases: false
+  records: true                               # Advanced Workflows (Business and above)
+  ai_agent_action: true                       # availability on Community is CONFLICT K7
+  change_control: true
+  tunnel: false                               # cloud-only add-on, enabled through Tines support (K36)
+
+records_tier: essentials                      # starter | essentials | standard | advanced | enterprise_l1 | "" (no Records)
+
+llm:                                          # the TINES-SIDE provider (AI Agent actions); the editor's model is separate
+  choice: tines_provided                      # tines_provided | byo_anthropic | byo_openai | byo_bedrock | byo_azure_openai |
+                                              # local_ollama_via_tunnel | local_vllm_via_tunnel | local_other_openai_compatible_via_tunnel
+  provider_name: ""                           # as shown in Settings → AI settings; empty for tines_provided
+  model_display_name: ""                      # optional: the model the probe should report
+
+chat_surface: email                           # slack | microsoft_teams | email | tines_pages_only
+slack_credential_name: ""                     # a credential NAME, only when chat_surface is slack
+
+credentials:                                  # NAMES of credentials that must exist in the ops team — never values
+  tines_api: tines_api_kit                    # team-scoped Editor key; the kit story's only Tines API credential
+  github: github_factory                      # the fixed name; a short-lived fine-grained token, section A only
+  tines_readonly: tines_api_readonly          # the scaffold's Viewer key; the App's cost endpoint
+
+github:
+  org: "<org>"
+  repo: "tines-story-factory"
+  template_repo: "<template-owner>/<template-repo>"
+
+ops_record_types:                             # [BY HAND] after day 1: the ops trio's Record type ids, added by PR, so
+  ops_findings: 0                             # kit-sync.yml puts them in kit_config (rt_ops_findings, rt_ops_alerts)
+  ops_alerts: 0                               # for D6 (retro evidence) and D9 (improve_check)

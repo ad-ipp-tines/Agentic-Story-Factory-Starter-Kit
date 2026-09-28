@@ -1,0 +1,78 @@
+# kit/tracker/backlog.yaml — THE tracker: one row per story, the system of record for its lifecycle state.
+#
+# Spec: REPO-DESIGN.md §6.5 (shape, field ownership, Flow 1 and Flow 2), §8.3. Schema: backlog.schema.json.
+# Field ↔ Record mapping: field-map.yaml. The sync contract and the rev rules: README.md in this folder.
+#
+# Never edit by hand, and never through the editor's Write/Edit tools (denied on kit/tracker/** in
+# .claude/settings.json). The only writers are ./scripts/sdlc (intake, apply, advance, gate) and ./scripts/kit
+# (tracker-fold for Tines-side changes, apply-config for the day-1 config), and every change reaches main through
+# a PR a human merges. A PR that changes a row sets its `rev` to main's rev + 1; sdlc.yml rejects any other value.
+#
+# Rules for every row: `key` is the slug (generated once, never changed) · `owner` is a role, never a person ·
+# timestamps are UTC with Z (Records drop offsets) · `library_seed_id` comes from kit/catalog/library-seeds.yaml
+# only · `use_case` is untrusted text · `mode` is one of none | sub-story | mode-1-preset | mode-3-agent |
+# mode-4-server · `provider` is one of tines_provided | custom | local | none.
+#
+# The template carries three rows: the scaffold's example story and the ops sweep (both seeded in every customer
+# backlog; [KIT] 00 A21 creates their Records rows when absent), and the kit story itself. The kit-factory row stays
+# in design: it cannot pass G1 as ./scripts/sdlc ready checks it (no sdlc/work/kit-factory/ design or cases; never
+# new: true and prod id 0), so the maintainer release reviews G1 and G2 by hand on stories/kit-factory/DESIGN.md and
+# sections/* and runs the build with SDLC_ENFORCE=0 (REPO-DESIGN.md §15.6 step 1).
+
+version: 1
+wip_limit_per_owner: 1
+stories:
+  - key: example-enrich-ip
+    title: "[SEC] 01 · Enrich IP (sub)"
+    use_case: "Enrich an IP from several reputation services and return one verdict."
+    library_seed_id: 87626
+    mode: sub-story
+    owner: security-automation
+    tier: production
+    phase: intake
+    status: active
+    open_gate: none
+    attempt: 0
+    target_date: ""
+    credit_estimate: { monthly: 0, basis: "no AI Agent action" }
+    provider: none
+    links: { design_pr: "", build_pr: "", change_request_id: "" }
+    prod_story_id: 0
+    live_since: ""
+    rev: 1
+  - key: ops-story-health-monitor
+    title: "[OPS] 10 · Monitor story health and credits"
+    use_case: "Sweep every production story for failures, silence and credit burn, and propose fixes for a human to approve."
+    library_seed_id: null
+    mode: mode-3-agent
+    owner: ops
+    tier: ops
+    phase: intake
+    status: active
+    open_gate: none
+    attempt: 0
+    target_date: ""
+    credit_estimate: { monthly: null, basis: "set at design: sweep runs/day × observed triage and critic credits × 30" }
+    provider: none
+    links: { design_pr: "", build_pr: "", change_request_id: "" }
+    prod_story_id: 0
+    live_since: ""
+    rev: 1
+  - key: kit-factory
+    title: "[KIT] 00 · Run the story factory"
+    use_case: "Provision a customer's repository and tenant from one kickoff Page, keep the tracker in sync between git and Records, and dispatch the tool-less runtime specialists."
+    library_seed_id: null
+    mode: none
+    owner: platform
+    tier: ops
+    phase: design
+    status: active
+    open_gate: none
+    attempt: 0
+    target_date: ""
+    credit_estimate: { monthly: null, basis: "set at design: planner, brief_writer and retro_writer runs/day × credits/run observed in dev × 30, plus the two provider probes" }
+    provider: none
+    links: { design_pr: "", build_pr: "", change_request_id: "" }
+    prod_story_id: 0
+    live_since: ""
+    rev: 1

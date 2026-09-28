@@ -1,0 +1,242 @@
+# .github/workflows/tracker-sync.yml — Flow 1: the tracker in git → the Records in Tines (REPO-DESIGN.md §6.5,
+# §7.4 section B; kit/tracker/README.md).
+#
+# On every push to main that touches kit/tracker/** (that is, every merged lifecycle or tracker PR), and nightly with
+# `full: true`:
+#   ./scripts/kit tracker-json --check                   validate backlog.yaml, milestones.yaml, the field map, the enums
+#   ./scripts/kit tracker-json --push [--full]           {schema_version, source_sha, full, entries[], milestones[], view}
+#     → POST $TRACKER_SYNC_URL                           the tracker_sync_in Webhook (Secret access control) in [KIT] 00
+# Section B takes the sdlc_sync_lock compare-and-swap (a 422 means another sync is running: it skips, and the next
+# push or the nightly run re-sends the full state), upserts every row by story_key, clears pending_repo_sync only when
+# git's rev is above the row's pending_base_rev, logs a transition event per phase change and hands it to section D.
+# The nightly run (full: true) also overwrites every non-pending row that differs from git, whatever the revs: git wins.
+# It runs at 02:40 UTC, after tracker-pull.yml's 01:40 snapshot has reported any drift it is about to overwrite.
+#
+# merge-events (push to main only): `./scripts/sdlc advance` writes the design → build (G2) and verify → ship (G4)
+# transitions on the branch BEFORE any merge, so it records them as `decision: pending_merge, actor_kind: ci` — never
+# as a human decision that has not happened. After the merge, this job reads the merged PR's mergedBy (gh pr list,
+# read-only), refuses a self-merge or an unknown merger (the job fails and records nothing), and otherwise appends the
+# human G2/G4 event (`decision: merged, actor_kind: human`, actor = the CODEOWNER role, refs = the PR number — never the
+# person's login, which stays on the PR in GitHub) to each events.jsonl, on a branch tracker/merge-<pr> opened as a PR
+# with the tracker-bot token (events.jsonl is append-only and reaches main only through a human merge).
+#
+# Secrets (GitHub environment `tracker`, deployment branches limited to main, no required reviewers — a push-triggered
+# sync must not wait for a click):
+#   TRACKER_SYNC_URL   the tracker_sync_in Webhook URL. It carries a secret: it lives only here, never in .env, and is
+#                      never printed. Copy it from the storyboard AFTER rotating the Webhook's secret (the [BY HAND]
+#                      list in the setup report; import may keep the template's values, K8).
+#   TRACKER_BOT_APP_ID, TRACKER_BOT_PRIVATE_KEY   the tracker-bot GitHub App (merge-events only; as tracker-pull.yml)
+# The script itself refuses to push unless GITHUB_ACTIONS=true and GITHUB_REF=refs/heads/main, so no working-tree
+# tracker is ever pushed past the human merge. Until the URL exists (before provisioning, or in the template
+# repository) the job validates and stops with a notice. Section B's kill switch (sdlc_limits.enabled) also holds the
+# sync until a person enables the runtime specialists.
+
+name: tracker-sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "kit/tracker/**"
+  schedule:
+    - cron: "40 2 * * *" # nightly full sync (full: true)
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "send full: true (overwrite every non-pending row that differs from git)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tracker-sync
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  sync:
+    name: push the tracker to [KIT] 00 section B
+    # a dispatch from any other branch never reaches the tenant
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: tracker
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Validate the tracker (no network)
+        run: ./scripts/kit tracker-json --check
+
+      - name: Is the tracker webhook configured?
+        id: gate
+        env:
+          TRACKER_SYNC_URL: ${{ secrets.TRACKER_SYNC_URL }}
+        run: |
+          if [ -z "${TRACKER_SYNC_URL:-}" ]; then
+            echo "::notice::TRACKER_SYNC_URL is not set in the environment 'tracker' (not provisioned yet, or the template repository); nothing was sent"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push the tracker (Flow 1)
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          TRACKER_SYNC_URL: ${{ secrets.TRACKER_SYNC_URL }}
+          FULL: ${{ github.event_name == 'schedule' || github.event.inputs.full == 'true' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$FULL" = "true" ]; then args+=(--full); fi
+          ./scripts/kit tracker-json --push "${args[@]}" | tee "$RUNNER_TEMP/sync.json"
+          {
+            echo "## Tracker sync (Flow 1) — ${GITHUB_SHA::7}"
+            echo
+            echo "full: \`${FULL}\` · the answer of tracker_sync_in (the URL is never printed):"
+            echo
+            echo '```json'; cat "$RUNNER_TEMP/sync.json"; echo '```'
+            echo
+            echo "Section B skips a run while another sync holds \`sdlc_sync_lock\`, and holds every sync while \`sdlc_limits.enabled\` is false."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  merge-events:
+    name: record the human G2/G4 merge (tracker PR)
+    # only a merge (a push to main) can bring a pending_merge event; the nightly and dispatched runs have none to record
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: tracker
+    permissions:
+      contents: read # the branch and the PR are written with the tracker-bot App token, never GITHUB_TOKEN
+      pull-requests: read # gh pr list: who merged the PR
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # the diff against the push's `before`
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Find the pending_merge events this merge brought, and who merged it
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          HAS_BOT: ${{ secrets.TRACKER_BOT_APP_ID != '' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess, sys
+          sys.path.insert(0, "scripts")
+          import sdlc_common as C
+          from sdlc_state import codeowner_role
+
+          sha = os.environ["GITHUB_SHA"]
+          before = os.environ.get("BEFORE") or ""
+          if not re.fullmatch(r"[0-9a-f]{40}", before) or set(before) == {"0"}:
+              before = f"{sha}^1"
+          out = open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8")
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True)
+
+          changed = [p for p in git("diff", "--name-only", "--no-renames", before, sha, "--", "sdlc/work").stdout.split()
+                     if re.fullmatch(r"sdlc/work/[^/]+/events\.jsonl", p)]
+          pending = []
+          for path in changed:
+              old = git("show", f"{before}:{path}")
+              old_lines = old.stdout.splitlines() if old.returncode == 0 else []
+              new_file = pathlib.Path(path)
+              new_lines = new_file.read_text(encoding="utf-8").splitlines() if new_file.is_file() else []
+              for line in new_lines[len(old_lines):]:
+                  try:
+                      ev = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if isinstance(ev, dict) and ev.get("decision") == "pending_merge" and ev.get("gate") in ("G2", "G4"):
+                      pending.append(ev)
+          if not pending:
+              print("no pending_merge (G2/G4) event in this push — nothing to record")
+              out.write("changed=false\n")
+              sys.exit(0)
+
+          listed = subprocess.run(["gh", "pr", "list", "--state", "merged", "--base", "main", "--limit", "50",
+                                   "--json", "number,author,mergedBy,mergeCommit"], capture_output=True, text=True)
+          prs = json.loads(listed.stdout or "[]") if listed.returncode == 0 else []
+          pr = next((p for p in prs if ((p.get("mergeCommit") or {}).get("oid") or "") == sha), None)
+          if pr is None:
+              print(f"::error title=merge-events::{len(pending)} pending G2/G4 event(s) reached main in {sha[:7]}, but no merged PR "
+                    "with that merge commit was found — record the human decision by hand in a tracker PR")
+              out.write("changed=false\n")
+              sys.exit(1)
+          n = int(pr["number"])
+          merger = str((pr.get("mergedBy") or {}).get("login") or "")
+          author = str((pr.get("author") or {}).get("login") or "")
+          if not merger or merger == author:
+              print(f"::error title=merge-events::PR #{n} carries {len(pending)} pending G2/G4 event(s) but was merged by "
+                    f"{'its author' if merger else 'an unknown account'}: no human G2/G4 event is recorded (no self-merge)")
+              out.write("changed=false\n")
+              sys.exit(1)
+          if os.environ.get("HAS_BOT") != "true":
+              print(f"::notice title=merge-events::the tracker-bot App is not configured in the environment 'tracker'; the human "
+                    f"G2/G4 event(s) for PR #{n} are not recorded")
+              out.write("changed=false\n")
+              sys.exit(0)
+
+          lines = []
+          for ev in pending:
+              slug = str(ev["story_key"])
+              event = C.make_event(
+                  slug, "transition", from_phase=ev.get("from_phase"), to_phase=ev.get("to_phase"), gate=ev["gate"],
+                  decision="merged", actor=f"{codeowner_role(slug)} CODEOWNER (merged #{n})", actor_kind="human",
+                  summary=(f"{ev['gate']} merged: PR #{n} was merged by a person who is not its author (GitHub records who, on "
+                           "the PR); the pending_merge transition written on its branch took effect."),
+                  tracker_rev=int(ev.get("tracker_rev") or 0), refs=[f"#{n}"], sha=sha)
+              C.append_event(slug, event)   # validates against the event schema first
+              lines.append(f"- `{slug}`: {ev['gate']} ({ev.get('from_phase')} → {ev.get('to_phase')})")
+          body = ["Records the **human** G2/G4 decision — the merge of #%d by a person who is not its author — as an "
+                  "append-only event. `./scripts/sdlc advance` wrote the transition on the branch as `pending_merge` "
+                  "(`actor_kind: ci`) because no merge had happened yet." % n, "", *lines, "",
+                  "<!-- tracker-keys: %s -->" % ",".join(sorted({str(e["story_key"]) for e in pending}))]
+          pathlib.Path(os.environ["RUNNER_TEMP"], "merge-body.md").write_text("\n".join(body) + "\n", encoding="utf-8")
+          out.write(f"changed=true\npr={n}\n")
+          PY
+
+      - name: Mint the tracker-bot token
+        id: bot
+        if: steps.find.outputs.changed == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TRACKER_BOT_APP_ID }}
+          private-key: ${{ secrets.TRACKER_BOT_PRIVATE_KEY }}
+
+      - name: Open the tracker PR (branch tracker/merge-<pr>)
+        if: steps.find.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+          MERGED_PR: ${{ steps.find.outputs.pr }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="tracker/merge-${MERGED_PR}"
+          git switch --quiet -c "$branch"
+          git add -- sdlc/work
+          git commit --quiet -m "tracker: record the human merge of #${MERGED_PR} (G2/G4)"
+          git push --quiet "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+          url=$(gh pr create --base main --head "$branch" --title "tracker: the human merge of #${MERGED_PR} (G2/G4 event)" \
+                  --body-file "$RUNNER_TEMP/merge-body.md" < /dev/null)
+          echo "Opened ${url}" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,71 @@
+{
+  "_status": "VERIFY — PLACEHOLDER SHAPE, NOT A CAPTURE (docs/VERIFY.md #9). No Tines page documents the body of a story-monitoring notification. Every key under `body` is an assumption, chosen only so that `normalize` and `classify_source` have something to be written against; they read it defensively with DEFAULT() over the candidate paths in `_normalize_reads`. Replace this whole file with a real, scrubbed capture before the router is trusted, then rewrite `normalize` and `classify_source` against it through /tines-build-story. Nothing in this file is a headline claim.",
+  "_captured": {
+    "on": null,
+    "by_role": null,
+    "env": null,
+    "export_schema_version": null,
+    "method": null,
+    "handled_failure_path_still_notified": null
+  },
+  "_capture_procedure": [
+    "1. In the DEV team (never 90 Seeds, never prod), build two scratch stories: a receiver with one Webhook action named `capture`, and a failer with one HTTP Request action to https://example.invalid/ (fails on DNS), emit failure event Always, retries 0.",
+    "2. On the failer: story-level 'Notify when any action fails' on; recipient = the `capture` webhook URL; run it LIVE once (monitoring is unavailable in TEST mode).",
+    "3. Run it again with the failure routed down a failure path to an Event Transform; record in `_captured.handled_failure_path_still_notified` whether a notification still arrived (docs/VERIFY.md #24).",
+    "4. Set 'Notify if no events emitted' on the failer's entry at the smallest value the UI accepts (minimum VERIFY) and wait for one no-events notification.",
+    "5. Copy each `capture` event body into `body` (failure) and `body_no_events` (no events). Scrub first — see `_scrub_before_commit`.",
+    "6. Repeat once per other Tines-origin sender and commit each as its own file: samples/ai-credit-alert.sample.json, samples/event-limit-alert.sample.json, samples/change-control.sample.json.",
+    "7. Record the outcome in docs/VERIFY.md (#9, #24); replace tests/sample-event.json with the scrubbed failure body; run /tines-build-story ops-error-router \"Rewrite normalize and classify_source against samples/*.sample.json\"; re-run the tests; delete both scratch stories."
+  ],
+  "_scrub_before_commit": [
+    "story and action ids -> 0",
+    "story and action names -> the example names used below",
+    "the tenant host -> <your-tenant>",
+    "any URL carrying a path, a secret or a query string -> removed, or reduced to https://<your-tenant>.tines.com/",
+    "any email address -> *.example.invalid",
+    "any webhook path or secret -> removed",
+    "any log message text beyond the HTTP status -> shortened to a neutral phrase"
+  ],
+  "_normalize_reads": {
+    "story_id": ["body.story_id", "body.story.id"],
+    "story_name": ["body.story_name", "body.story.name"],
+    "action_id": ["body.action_id", "body.action.id", "body.agent.id"],
+    "action_name": ["body.action_name", "body.action.name", "body.agent.name"],
+    "action_type": ["body.action_type", "body.action.type", "body.agent.type"],
+    "event_raw": ["body.event", "body.type", "body.notification_type"],
+    "status_code": ["body.status", "body.response_status", "body.action.status"],
+    "pct": ["body.percentage", "body.threshold_pct"],
+    "message": ["body.message", "body.error", "body.action.last_error"],
+    "occurred_at": ["body.occurred_at", "body.created_at", "body.timestamp"]
+  },
+  "_what_the_router_needs_from_a_capture": "story id and name, action id, name and type, whether it is a failure or a no-events notification, a timestamp, and — if present — an HTTP status and a link. Anything else in the body is ignored and never posted.",
+  "_other_sources": "The AI credit usage alert, the event-limit alert and the team change-control webhook are also undocumented (VERIFY #9) and get their own sample files once captured. The pipeline's own ship notification is the one known shape: scripts/ship_story.py posts {source: \"ship_story.py\", event, env, slug, story_id, draft_id, change_request_id, sha, source_url, run_url, requires} (see tests/expectations.yaml variant ci_change_request_opened).",
+  "body": {
+    "event": "action_failed",
+    "story": {
+      "id": 0,
+      "name": "[SEC] 01 · Enrich IP (sub)"
+    },
+    "action": {
+      "id": 0,
+      "name": "lookup_virustotal",
+      "type": "Agents::HTTPRequestAgent"
+    },
+    "status": 503,
+    "message": "HTTP 503 from upstream after final retry",
+    "occurred_at": "2026-09-24T17:00:00Z"
+  },
+  "body_no_events": {
+    "event": "no_events_emitted",
+    "story": {
+      "id": 0,
+      "name": "[SEC] 01 · Enrich IP (sub)"
+    },
+    "action": {
+      "id": 0,
+      "name": "receive_ip",
+      "type": "Agents::WebhookAgent"
+    },
+    "occurred_at": "2026-09-24T19:00:00Z"
+  }
+}

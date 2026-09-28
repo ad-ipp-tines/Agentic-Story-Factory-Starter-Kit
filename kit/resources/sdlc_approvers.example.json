@@ -1,0 +1,13 @@
+{
+  "G0": [
+    "approver-g0@example.invalid"
+  ],
+  "G6": [
+    "approver-g6@example.invalid"
+  ],
+  "G7": [
+    "approver-g7@example.invalid"
+  ],
+  "GX": [],
+  "unpark": []
+}

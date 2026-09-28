@@ -1,0 +1,28 @@
+{
+  "name": "sdlc_events",
+  "team_id": 0,
+  "ttl_days": 365,
+  "retention_column_name": "CREATED_AT",
+  "on_limit_reached": "EVICT_OLDEST",
+  "max_records_limit": 100000,
+  "fields": [
+    { "name": "story_key", "result_type": "TEXT" },
+    { "name": "event_type", "result_type": "TEXT_ENUM", "fixed_values": ["transition", "gate_decision", "specialist_run", "sync", "conflict", "budget", "escalation"] },
+    { "name": "from_phase", "result_type": "TEXT_ENUM", "fixed_values": ["none", "intake", "discover", "design", "build", "verify", "ship", "operate", "improve", "parked", "rejected", "retired"] },
+    { "name": "to_phase", "result_type": "TEXT_ENUM", "fixed_values": ["none", "intake", "discover", "design", "build", "verify", "ship", "operate", "improve", "parked", "rejected", "retired"] },
+    { "name": "gate", "result_type": "TEXT_ENUM", "fixed_values": ["none", "G0", "G1", "G2", "G3", "G4", "G5a", "G5b", "G6", "G7", "GB", "GX"] },
+    { "name": "decision", "result_type": "TEXT" },
+    { "name": "actor", "result_type": "TEXT" },
+    { "name": "actor_ref", "result_type": "TEXT" },
+    { "name": "actor_kind", "result_type": "TEXT_ENUM", "fixed_values": ["human", "agent", "ci", "story"] },
+    { "name": "agent", "result_type": "TEXT" },
+    { "name": "model", "result_type": "TEXT" },
+    { "name": "credits_used", "result_type": "NUMBER" },
+    { "name": "input_tokens", "result_type": "NUMBER" },
+    { "name": "output_tokens", "result_type": "NUMBER" },
+    { "name": "summary", "result_type": "TEXT" },
+    { "name": "ref", "result_type": "TEXT" },
+    { "name": "tracker_rev", "result_type": "NUMBER" },
+    { "name": "source_sha", "result_type": "TEXT" }
+  ]
+}

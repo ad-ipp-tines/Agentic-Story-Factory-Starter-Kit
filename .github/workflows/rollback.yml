@@ -1,0 +1,776 @@
+# .github/workflows/rollback.yml — roll production back through the same change-control path; break-glass is separate,
+# two-person and logged (DESIGN.md §3.4 "rollback.yml", §4.5, §2.3 row 19; docs/06-rollback-and-recovery.md §3–§4).
+#
+# A rollback is a ship of an older commit. The git ref is the source (no export-of-a-version endpoint was found —
+# VERIFY #12). Prepare the PR that keeps main truthful with /tines-rollback first; then a human dispatches this.
+#
+#   emergency: false  (the normal path)
+#     rollback              GitHub environment `production`
+#                           POST /api/v1/stories/{id}/versions          "pre-rollback <sha7>"
+#                           POST /api/v1/stories/import                 the target's story.json, mode versionReplace,
+#                                                                       draft_name rollback-<target7>
+#                           POST /api/v1/stories/{id}/recipients + PUT /api/v1/stories/{id} {monitor_failures} — on the draft
+#                           POST /api/v1/stories/{id}/change_request    "ROLLBACK <slug> to <target7>"
+#                           GET  …/change_request/view                  → job summary for the approver
+#                           STOP. A named approver approves in Tines and pushes, or promote.yml runs on APPROVED.
+#
+#   emergency: true   (production is causing harm now)
+#     break-glass           GitHub environment `break-glass`: POST /api/v1/stories/{id}/disable (toggles; bypasses
+#                           change control by design; audited) → a line in policies/break-glass-log.md, committed in
+#                           this run → then `rollback` above prepares the good state as a draft + change request.
+#     break-glass-promote   only with bypass_approval: true, again in `break-glass`: an APPROVED request is promoted
+#                           normally; otherwise POST …/change_request/promote {bypass_approval: true,
+#                           bypass_approval_reason} → another log line in this run. "Only if promotion cannot wait."
+#
+#   re_enable: true   (after the approver confirms the restored state)
+#     break-glass-re-enable GitHub environment `break-glass`: POST …/disable again (it toggles back) → a log line.
+#
+# Two reviewers for every break-glass job (DESIGN.md §2.3 row 19), neither of them the dispatcher. A GitHub environment
+# releases a job on ONE approval, so two environments are chained: the `break-glass-second-approval` job waits on
+# environment `break-glass-2`, and every break-glass job then waits on environment `break-glass`. Configure both with
+# required reviewers AND "Prevent self-reviews". Every break-glass job also counts the run's approvals and fails
+# closed unless two DISTINCT people other than the triggering actor approved (one on each environment).
+#
+# The log can never trail the action: the plan job validates the reason with break_glass_log.py --check before any
+# job acts; each break-glass job commits and pushes an INTENT row before the disable, bypass or re-enable (a failed
+# push stops the job before the call), and an outcome row after it. The Who column records the approvals the job
+# actually counted, never a fixed string.
+#
+# Identity:
+#   `production`   CI-prod — the TEAM-scoped key named by stories/_manifest.yaml environments.<env>.api_key_secret
+#                  (Editor role: import, version, recipients, change requests; cannot approve)
+#   `break-glass`  its OWN secret of the same name (environment secrets shadow repository secrets): a team-scoped key
+#                  whose role can disable stories and, for bypass_approval, holds STORY_MANAGE. Nothing else holds it.
+# All three environments (production, break-glass, break-glass-2): deployment branches limited to `main`. BREAK_GLASS=1 is set only in the break-glass jobs;
+# scripts/story_disable.py refuses a prod disable without it and scripts/promote_change_request.py refuses a bypass
+# outside the job named break-glass-promote in this workflow.
+
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "story slug (as in stories/_manifest.yaml)"
+        required: true
+        type: string
+      target:
+        description: "git ref of the last good export (a commit sha from `git log -- stories/<slug>/story.json`); ignored with re_enable"
+        required: true
+        type: string
+      reason:
+        description: "why — one or two sentences plus the incident link; goes into the change request and the break-glass log"
+        required: true
+        type: string
+      emergency:
+        description: "BREAK-GLASS: disable the story first (environment break-glass, two people, logged)"
+        required: false
+        default: false
+        type: boolean
+      bypass_approval:
+        description: "BREAK-GLASS, only with emergency: promote the rollback without waiting for the Tines approver (logged)"
+        required: false
+        default: false
+        type: boolean
+      re_enable:
+        description: "only re-enable a story an earlier break-glass run disabled (toggles back, logged); nothing else runs"
+        required: false
+        default: false
+        type: boolean
+      env:
+        description: "environment from stories/_manifest.yaml (dev to rehearse on a scratch story)"
+        required: true
+        default: prod
+        type: choice
+        options: [prod, staging, dev]
+      pr_url:
+        description: "the ROLLBACK PR opened by /tines-rollback (cited in the change request and the log)"
+        required: false
+        type: string
+
+permissions:
+  contents: write # the break-glass log commit on a break-glass/<slug>/<run id> branch
+  pull-requests: write # the PR that carries the log line into main
+  issues: write # create the `break-glass` label if it does not exist yet
+  actions: read # read this run's environment approvals (the two-person check)
+
+concurrency:
+  group: rollback-${{ github.event.inputs.slug }}
+  cancel-in-progress: false # never cancel a half-finished import or a disable
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  plan:
+    name: plan (validate the request)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      bypass: ${{ steps.plan.outputs.bypass }}
+      target_env: ${{ steps.plan.outputs.target_env }}
+      github_environment: ${{ steps.plan.outputs.github_environment }}
+      key_secret: ${{ steps.plan.outputs.key_secret }}
+      target_sha: ${{ steps.plan.outputs.target_sha }}
+      locked: ${{ steps.plan.outputs.locked }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # the target ref must resolve
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet pyyaml
+      - name: Validate slug, target, reason, mode and ref
+        id: plan
+        env:
+          INPUT_SLUG: ${{ github.event.inputs.slug }}
+          INPUT_TARGET: ${{ github.event.inputs.target }}
+          INPUT_REASON: ${{ github.event.inputs.reason }}
+          INPUT_ENV: ${{ github.event.inputs.env }}
+          INPUT_EMERGENCY: ${{ github.event.inputs.emergency }}
+          INPUT_BYPASS: ${{ github.event.inputs.bypass_approval }}
+          INPUT_RE_ENABLE: ${{ github.event.inputs.re_enable }}
+          INPUT_PR_URL: ${{ github.event.inputs.pr_url }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess, sys
+          import yaml
+
+          def fail(msg):
+              print(f"::error title=rollback::{msg}"); sys.exit(1)
+
+          truthy = lambda name: (os.environ.get(name) or "").strip().lower() == "true"
+          manifest = yaml.safe_load(pathlib.Path("stories/_manifest.yaml").read_text(encoding="utf-8")) or {}
+          envs = manifest.get("environments") or {}
+          stories = manifest.get("stories") or {}
+          slug = (os.environ.get("INPUT_SLUG") or "").strip()
+          target_env = (os.environ.get("INPUT_ENV") or "prod").strip()
+          target = (os.environ.get("INPUT_TARGET") or "").strip()
+          reason = (os.environ.get("INPUT_REASON") or "").strip()
+          pr_url = (os.environ.get("INPUT_PR_URL") or "").strip()
+          emergency, bypass, re_enable = truthy("INPUT_EMERGENCY"), truthy("INPUT_BYPASS"), truthy("INPUT_RE_ENABLE")
+
+          if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug) or slug not in stories:
+              fail(f"slug {slug!r} is not in stories/_manifest.yaml")
+          if target_env not in envs:
+              fail(f"environment {target_env!r} is not defined in stories/_manifest.yaml")
+          entry = stories[slug] or {}
+          story_id = int(((entry.get(target_env)) or {}).get("story_id") or 0)
+          if story_id <= 0:
+              fail(f"{slug} has no story id in {target_env} — there is nothing in the tenant to roll back")
+          if entry.get("new"):
+              fail(f"{slug} is still marked `new: true`; an import would CREATE a story instead of replacing it. "
+                   "Merge the manifest follow-up PR (remove `new: true`) first")
+          if len(reason) < 10:
+              fail("reason must be at least a sentence (it goes into the change request and the break-glass log)")
+          if "\n" in reason or "\r" in reason:
+              fail("reason must be one line")
+          if pr_url and not re.fullmatch(r"https://[A-Za-z0-9./_#?=&%-]+", pr_url):
+              fail("pr_url must be a plain https URL")
+          if bypass and not emergency:
+              fail("bypass_approval is only available with emergency: true")
+          if re_enable and (emergency or bypass):
+              fail("re_enable runs on its own: leave emergency and bypass_approval off")
+          if target_env == "prod" and os.environ.get("GITHUB_REF") != "refs/heads/main":
+              fail("prod rollbacks run from main only (the scripts that act are the ones on main)")
+
+          target_sha = ""
+          if not re_enable:
+              if not re.fullmatch(r"[A-Za-z0-9._/~^-]{1,100}", target):
+                  fail(f"target {target!r} is not a plain git ref")
+              p = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{target}^{{commit}}"], capture_output=True, text=True)
+              if p.returncode or not p.stdout.strip():
+                  fail(f"target {target!r} does not resolve to a commit in this repository")
+              target_sha = p.stdout.strip()
+              q = subprocess.run(["git", "cat-file", "-e", f"{target_sha}:stories/{slug}/story.json"], capture_output=True)
+              if q.returncode:
+                  fail(f"stories/{slug}/story.json does not exist at {target_sha[:7]}")
+
+          mode = "re-enable" if re_enable else ("emergency" if emergency else "rollback")
+          default_secret = "TINES_API_KEY_PROD" if target_env == "prod" else "TINES_API_KEY"
+          outputs = {
+              "mode": mode,
+              "bypass": "true" if bypass else "false",
+              "target_env": target_env,
+              "github_environment": {"prod": "production"}.get(target_env, target_env),
+              "key_secret": str((envs.get(target_env) or {}).get("api_key_secret") or default_secret),
+              "target_sha": target_sha,
+              "locked": "true" if slug in ((envs.get(target_env) or {}).get("locked_slugs") or []) else "false",
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              for k, v in outputs.items():
+                  fh.write(f"{k}={v}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(f"## rollback.yml — `{slug}` ({target_env}), mode **{mode}**"
+                       f"{' + bypass_approval' if bypass else ''}{', target ' + target_sha[:7] if target_sha else ''}\n\n")
+          print(outputs)
+          PY
+
+      - name: Validate the reason and PR URL with the log writer itself (before any job acts)
+        env:
+          INPUT_SLUG: ${{ github.event.inputs.slug }}
+          INPUT_ENV: ${{ github.event.inputs.env }}
+          INPUT_REASON: ${{ github.event.inputs.reason }}
+          INPUT_PR_URL: ${{ github.event.inputs.pr_url }}
+        run: |
+          set -euo pipefail
+          # the same checks the break-glass log row will face (secret patterns, length, one line) — a reason the log
+          # would refuse must never reach a disable or a bypass
+          python3 scripts/break_glass_log.py --check --slug "$INPUT_SLUG" --env "$INPUT_ENV" --action disable \
+            --reason "$INPUT_REASON" --pr-url "${INPUT_PR_URL:-}"
+
+  # ------------------------------------------------------------------------------------------------------------ #
+  # The second reviewer — a separate environment, so a break-glass job needs two distinct approvals
+  # ------------------------------------------------------------------------------------------------------------ #
+  break-glass-second-approval:
+    name: break-glass — second reviewer (environment break-glass-2)
+    needs: plan
+    if: needs.plan.outputs.mode == 'emergency' || needs.plan.outputs.mode == 're-enable'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: break-glass-2 # required reviewers + "Prevent self-reviews"; holds no secrets
+    steps:
+      - name: Recorded
+        run: echo "break-glass-2 approved; the break-glass job(s) now wait on environment break-glass (a different person)" >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------------------------------------------------------------------ #
+  # BREAK-GLASS 1 · containment — disable the story now, log it in this run
+  # ------------------------------------------------------------------------------------------------------------ #
+  break-glass:
+    name: break-glass — disable the story (two reviewers, logged)
+    needs: [plan, break-glass-second-approval]
+    if: needs.plan.outputs.mode == 'emergency' && needs.break-glass-second-approval.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: break-glass
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.key_secret] }}
+      TINES_ENV: ${{ needs.plan.outputs.target_env }}
+      TINES_ALLOW_PROD: ${{ needs.plan.outputs.target_env == 'prod' && '1' || '0' }}
+      BREAK_GLASS: "1"
+      OPS_ROUTER_URL: ${{ secrets.OPS_ROUTER_URL }}
+      SLUG: ${{ github.event.inputs.slug }}
+      REASON: ${{ github.event.inputs.reason }}
+      PR_URL: ${{ github.event.inputs.pr_url }}
+    steps:
+      - name: Two reviewers — two distinct people, neither the dispatcher, approved break-glass-2 and break-glass
+        id: twoperson
+        uses: actions/github-script@v7
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data } = await github.rest.actions.getReviewsForRun({ owner, repo, run_id: context.runId });
+            const approvals = data.filter(r => r.state === 'approved' && r.user && r.user.login !== process.env.ACTOR);
+            const on = env => new Set(approvals.filter(r => (r.environments || []).some(e => e.name === env)).map(r => r.user.login));
+            const first = on('break-glass-2'), second = on('break-glass');
+            const distinct = new Set([...first, ...second]);
+            if (!(first.size >= 1 && second.size >= 1 && distinct.size >= 2)) {
+              core.setFailed('break-glass needs two reviewers: approvals of `break-glass-2` and `break-glass` by two different people, neither the dispatcher (enable "Prevent self-reviews" on both environments).');
+            }
+            core.setOutput('role', `dispatcher + ${distinct.size} distinct approvers (break-glass-2, break-glass), none the dispatcher`);
+
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Log the INTENT row and push it (before the disable — a failed push stops the job here)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROLE: ${{ steps.twoperson.outputs.role }}
+        run: |
+          set -euo pipefail
+          branch="break-glass/${SLUG}/${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --quiet -c "$branch"
+          row=$(python3 scripts/break_glass_log.py --phase intent --slug "$SLUG" --env "$TINES_ENV" --action disable \
+                  --reason "$REASON" --run-id "$GITHUB_RUN_ID" --pr-url "${PR_URL:-}" --role "$ROLE")
+          git add policies/break-glass-log.md
+          git commit --quiet -m "break-glass(${SLUG}): intent to disable in ${TINES_ENV} (rollback.yml run ${GITHUB_RUN_ID})"
+          git push --quiet origin "HEAD:refs/heads/${branch}"
+          gh label create break-glass --color 000000 --description "break-glass log lines (rollback.yml)" 2>/dev/null || true
+          gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" --label break-glass \
+            --title "break-glass: ${SLUG} (${TINES_ENV}) — log lines from run ${GITHUB_RUN_ID}" \
+            --body "Log line(s) written by rollback.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Merge as-is: the log is append-only. Add the Tines audit-log ids and the follow-up PR in a **new** row once known (\`./scripts/tines audit --after <time> --story-id <id>\`)." >/dev/null
+          { echo "**Intent logged** in \`policies/break-glass-log.md\` on \`${branch}\`:"; echo; echo "$row"; echo; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Disable the story (POST …/disable — toggles; bypasses change control; audited)
+        id: disable
+        run: |
+          set -euo pipefail
+          ./scripts/tines story-disable "$SLUG" --env "$TINES_ENV" --want disabled --reason "$REASON" | tee "$RUNNER_TEMP/disable.json"
+          {
+            echo "### Break-glass: \`${SLUG}\` disabled in ${TINES_ENV}"
+            echo
+            echo '```json'; cat "$RUNNER_TEMP/disable.json"; echo '```'
+            echo
+            echo "- Expect a burst of failure notifications; the router dedupes per story + action + 15 minutes."
+            echo "- Safe-disable order: where the canvas allows, stop the entry or schedule action first so in-flight events drain."
+            echo "- If the router itself was disabled, tell the email DL by hand — it is the second channel."
+            echo "- Re-enable with this workflow and \`re_enable: true\` once the approver confirms the restored state."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tell the ops channel (router)
+        if: always() && steps.disable.outcome != 'skipped'
+        env:
+          OUTCOME: ${{ steps.disable.outcome }}
+          ROLE: ${{ steps.twoperson.outputs.role }}
+        run: |
+          set -euo pipefail
+          [ -n "${OPS_ROUTER_URL:-}" ] || exit 0
+          jq -n --arg slug "$SLUG" --arg env "$TINES_ENV" --arg reason "$REASON" --arg outcome "$OUTCOME" \
+                --arg who "$ROLE" --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{source: "rollback.yml", event: "break_glass_disable", env: $env, slug: $slug, outcome: $outcome,
+              reason: $reason, who: $who, run_url: $run, next: "rollback draft + change request"}' \
+            > "$RUNNER_TEMP/notify.json"
+          curl -sS -m 15 -o /dev/null -X POST -H "Content-Type: application/json" --data @"$RUNNER_TEMP/notify.json" "$OPS_ROUTER_URL" \
+            || echo "::warning title=break-glass::the ops router notification failed — post in the ops channel and email the DL by hand"
+
+      - name: Append the OUTCOME row to policies/break-glass-log.md and commit it in this run
+        if: always() && steps.disable.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: disable
+          OUTCOME: ${{ steps.disable.outcome == 'success' && 'ok' || 'failed' }}
+          CR_ID: ""
+          ROLE: ${{ steps.twoperson.outputs.role }}
+        run: |
+          set -euo pipefail
+          branch="break-glass/${SLUG}/${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch --quiet origin "refs/heads/${branch}" && git switch --quiet -C "$branch" FETCH_HEAD
+          else
+            git switch --quiet -c "$branch"
+          fi
+          row=$(python3 scripts/break_glass_log.py --slug "$SLUG" --env "$TINES_ENV" --action "$ACTION" --outcome "$OUTCOME" \
+                  --reason "$REASON" --change-request-id "$CR_ID" --run-id "$GITHUB_RUN_ID" --pr-url "${PR_URL:-}" --role "$ROLE")
+          git add policies/break-glass-log.md
+          git commit --quiet -m "break-glass(${SLUG}): ${ACTION} in ${TINES_ENV} (rollback.yml run ${GITHUB_RUN_ID})"
+          git push --quiet origin "HEAD:refs/heads/${branch}"
+          gh label create break-glass --color 000000 --description "break-glass log lines (rollback.yml)" 2>/dev/null || true
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')" ]; then
+            gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" --label break-glass \
+              --title "break-glass: ${SLUG} (${TINES_ENV}) — log lines from run ${GITHUB_RUN_ID}" \
+              --body "Log line(s) written by rollback.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Merge as-is: the log is append-only. Add the Tines audit-log ids and the follow-up PR in a **new** row once known (\`./scripts/tines audit --after <time> --story-id <id>\`)." >/dev/null
+          fi
+          { echo; echo "**Logged** in \`policies/break-glass-log.md\` on \`${branch}\`:"; echo; echo "$row"; } >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------------------------------------------------------------------ #
+  # The controlled rollback — the same draft → change request → human approval path as a ship
+  # ------------------------------------------------------------------------------------------------------------ #
+  rollback:
+    name: rollback — target export → draft → change request (never promotes)
+    needs: [plan, break-glass]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.mode != 're-enable' &&
+      (needs.break-glass.result == 'success' || needs.break-glass.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ needs.plan.outputs.github_environment }}
+    outputs:
+      draft_id: ${{ steps.import.outputs.draft_id }}
+      change_request_id: ${{ steps.cr.outputs.change_request_id }}
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.key_secret] }}
+      TINES_ENV: ${{ needs.plan.outputs.target_env }}
+      TINES_ALLOW_PROD: ${{ needs.plan.outputs.target_env == 'prod' && '1' || '0' }}
+      BREAK_GLASS: "" # nothing in this job bypasses anything
+      OPS_ROUTER_URL: ${{ secrets.OPS_ROUTER_URL }}
+      OPS_EMAIL_DL: ${{ secrets.OPS_EMAIL_DL }}
+      SLUG: ${{ github.event.inputs.slug }}
+      REASON: ${{ github.event.inputs.reason }}
+      PR_URL: ${{ github.event.inputs.pr_url }}
+      TARGET_SHA: ${{ needs.plan.outputs.target_sha }}
+      LOCKED: ${{ needs.plan.outputs.locked }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # the target's story.json comes from git history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Materialise the target export (git is the source — VERIFY #12)
+        run: |
+          set -euo pipefail
+          file="stories/${SLUG}/story.json"
+          git show "${TARGET_SHA}:${file}" > "$RUNNER_TEMP/rollback.json"
+          if jq -e 'has("exported_at")' "$RUNNER_TEMP/rollback.json" >/dev/null; then
+            echo "::error title=rollback::${file} at ${TARGET_SHA::7} is not normalised (exported_at present) — pick a commit that went through /tines-export"
+            exit 1
+          fi
+          jq -r '"target export: \(.name) — \(.agents | length) action(s)"' "$RUNNER_TEMP/rollback.json"
+          meta=()
+          if git cat-file -e "${TARGET_SHA}:stories/${SLUG}/story.meta.yaml" 2>/dev/null; then
+            git show "${TARGET_SHA}:stories/${SLUG}/story.meta.yaml" > "$RUNNER_TEMP/rollback.meta.yaml"
+            meta=(--meta "$RUNNER_TEMP/rollback.meta.yaml")
+          fi
+          # Today's lint rules may postdate the target; the approver reads the findings, they do not block a rollback.
+          ./scripts/lint-story.sh "$RUNNER_TEMP/rollback.json" "${meta[@]}" --format github \
+            || echo "::warning title=rollback::the target export does not pass today's lint rules — the approver should read the findings above"
+
+      - name: Semantic diff — what the rollback changes (main → target)
+        run: |
+          set -euo pipefail
+          python3 scripts/diff_story.py "$RUNNER_TEMP/rollback.json" --against "stories/${SLUG}/story.json" \
+            > "$RUNNER_TEMP/rollback.diff.md" || echo "(semantic diff unavailable)" > "$RUNNER_TEMP/rollback.diff.md"
+          { echo "### What the rollback changes (\`main\` → ${TARGET_SHA::7})"; echo; cat "$RUNNER_TEMP/rollback.diff.md"; echo; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rollback point in the tenant (story version "pre-rollback <sha7>")
+        run: ./scripts/tines version-create "$SLUG" --env "$TINES_ENV" --name "pre-rollback ${GITHUB_SHA::7}"
+
+      - name: Import the target export as draft rollback-<target7> (versionReplace; matches by name)
+        id: import
+        run: |
+          set -euo pipefail
+          ./scripts/tines import-draft "$SLUG" --env "$TINES_ENV" --file "$RUNNER_TEMP/rollback.json" \
+            --draft-name "rollback-${TARGET_SHA::7}" | tee "$RUNNER_TEMP/import.jsonl"
+          draft_id=$(tail -n1 "$RUNNER_TEMP/import.jsonl" | jq -r '.draft_id // empty')
+          if [ -z "$draft_id" ]; then
+            echo "::error title=rollback::the import response carried no draft id (field name VERIFY #6) — nothing else was changed; read the response keys above"
+            exit 1
+          fi
+          echo "draft_id=$draft_id" >> "$GITHUB_OUTPUT"
+
+      - name: Recipients and monitor_failures on the draft (story.meta.yaml list, else the manifest)
+        env:
+          DRAFT_ID: ${{ steps.import.outputs.draft_id }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ "$LOCKED" = "true" ]; then extra+=(--locked true); fi
+          # --via-draft: the prod id is in policies/never-touch.yml; the write lands only in this rollback's own draft.
+          ./scripts/tines story-update "$SLUG" --env "$TINES_ENV" --draft "$DRAFT_ID" --via-draft --from-manifest --monitor-failures true "${extra[@]}"
+
+      - name: Open the change request "ROLLBACK <slug> to <target7>"
+        id: cr
+        env:
+          DRAFT_ID: ${{ steps.import.outputs.draft_id }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          ./scripts/tines cr-open "$SLUG" --env "$TINES_ENV" --draft "$DRAFT_ID" \
+            --title "ROLLBACK ${SLUG} to ${TARGET_SHA::7}" --reason "$REASON" \
+            --pr-url "${PR_URL:-$run_url}" --diff "$RUNNER_TEMP/rollback.diff.md" --rollback-ref "$GITHUB_SHA" \
+            | tee "$RUNNER_TEMP/cr.jsonl"
+          cr_id=$(tail -n1 "$RUNNER_TEMP/cr.jsonl" | jq -r '.change_request_id // empty')
+          echo "change_request_id=$cr_id" >> "$GITHUB_OUTPUT"
+
+      - name: Live-vs-draft view for the approver (job summary)
+        env:
+          DRAFT_ID: ${{ steps.import.outputs.draft_id }}
+          CR_ID: ${{ steps.cr.outputs.change_request_id }}
+        run: |
+          set -euo pipefail
+          ./scripts/tines cr-view "$SLUG" --env "$TINES_ENV" --draft "$DRAFT_ID" >> "$GITHUB_STEP_SUMMARY" || true
+          {
+            echo
+            echo "**Next:** a named approver opens change request \`${CR_ID:-?}\` in Tines, reads the live-vs-draft diff and the rollback PR, approves and pushes — or runs \`promote.yml\` with \`change_request_id=${CR_ID:-?}\`, \`draft_id=${DRAFT_ID}\` once it is APPROVED. Merge the rollback PR so \`main\` equals production; \`drift.yml\` proves it tonight."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tell the ops channel (router)
+        if: success()
+        env:
+          DRAFT_ID: ${{ steps.import.outputs.draft_id }}
+          CR_ID: ${{ steps.cr.outputs.change_request_id }}
+        run: |
+          set -euo pipefail
+          [ -n "${OPS_ROUTER_URL:-}" ] || exit 0
+          jq -n --arg slug "$SLUG" --arg env "$TINES_ENV" --arg target "$TARGET_SHA" --arg draft "$DRAFT_ID" --arg cr "$CR_ID" \
+                --arg reason "$REASON" --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{source: "rollback.yml", event: "rollback_change_request_opened", env: $env, slug: $slug, target: $target,
+              draft_id: $draft, change_request_id: $cr, reason: $reason, run_url: $run, requires: "a named approver in Tines"}' \
+            > "$RUNNER_TEMP/notify.json"
+          curl -sS -m 15 -o /dev/null -X POST -H "Content-Type: application/json" --data @"$RUNNER_TEMP/notify.json" "$OPS_ROUTER_URL" \
+            || echo "::warning title=rollback::the ops router notification failed"
+
+  # ------------------------------------------------------------------------------------------------------------ #
+  # BREAK-GLASS 2 · promote the rollback without waiting — only if asked, only if still not APPROVED, logged
+  # ------------------------------------------------------------------------------------------------------------ #
+  break-glass-promote:
+    name: break-glass — promote the rollback (bypass_approval only if still not APPROVED; logged)
+    needs: [plan, rollback]
+    if: >-
+      always() &&
+      needs.plan.outputs.mode == 'emergency' &&
+      needs.plan.outputs.bypass == 'true' &&
+      needs.rollback.result == 'success' &&
+      needs.rollback.outputs.change_request_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: break-glass
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.key_secret] }}
+      TINES_ENV: ${{ needs.plan.outputs.target_env }}
+      TINES_ALLOW_PROD: ${{ needs.plan.outputs.target_env == 'prod' && '1' || '0' }}
+      BREAK_GLASS: "1"
+      OPS_ROUTER_URL: ${{ secrets.OPS_ROUTER_URL }}
+      SLUG: ${{ github.event.inputs.slug }}
+      REASON: ${{ github.event.inputs.reason }}
+      PR_URL: ${{ github.event.inputs.pr_url }}
+      TARGET_SHA: ${{ needs.plan.outputs.target_sha }}
+      DRAFT_ID: ${{ needs.rollback.outputs.draft_id }}
+      CR_ID: ${{ needs.rollback.outputs.change_request_id }}
+    steps:
+      - name: Two reviewers — two distinct people, neither the dispatcher, approved break-glass-2 and break-glass
+        id: twoperson
+        uses: actions/github-script@v7
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data } = await github.rest.actions.getReviewsForRun({ owner, repo, run_id: context.runId });
+            const approvals = data.filter(r => r.state === 'approved' && r.user && r.user.login !== process.env.ACTOR);
+            const on = env => new Set(approvals.filter(r => (r.environments || []).some(e => e.name === env)).map(r => r.user.login));
+            const first = on('break-glass-2'), second = on('break-glass');
+            const distinct = new Set([...first, ...second]);
+            if (!(first.size >= 1 && second.size >= 1 && distinct.size >= 2)) {
+              core.setFailed('break-glass needs two reviewers: approvals of `break-glass-2` and `break-glass` by two different people, neither the dispatcher (enable "Prevent self-reviews" on both environments).');
+            }
+            core.setOutput('role', `dispatcher + ${distinct.size} distinct approvers (break-glass-2, break-glass), none the dispatcher`);
+
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Status first — an APPROVED request needs no bypass
+        id: status
+        run: |
+          set -euo pipefail
+          rc=0
+          ./scripts/tines cr-view "$SLUG" --env "$TINES_ENV" --draft "$DRAFT_ID" --require-status APPROVED > "$RUNNER_TEMP/view.md" || rc=$?
+          cat "$RUNNER_TEMP/view.md" >> "$GITHUB_STEP_SUMMARY"
+          case "$rc" in
+            0) echo "approved=true" >> "$GITHUB_OUTPUT" ;;
+            3) echo "approved=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$rc" ;;
+          esac
+
+      - name: Log the bypass INTENT row and push it (before the bypass — a failed push stops the job here)
+        if: steps.status.outputs.approved == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROLE: ${{ steps.twoperson.outputs.role }}
+        run: |
+          set -euo pipefail
+          branch="break-glass/${SLUG}/${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch --quiet origin "refs/heads/${branch}" && git switch --quiet -C "$branch" FETCH_HEAD
+          else
+            git switch --quiet -c "$branch"
+          fi
+          row=$(python3 scripts/break_glass_log.py --phase intent --slug "$SLUG" --env "$TINES_ENV" --action bypass_approval \
+                  --reason "$REASON" --change-request-id "$CR_ID" --run-id "$GITHUB_RUN_ID" --pr-url "${PR_URL:-}" --role "$ROLE")
+          git add policies/break-glass-log.md
+          git commit --quiet -m "break-glass(${SLUG}): intent to bypass_approval in ${TINES_ENV} (rollback.yml run ${GITHUB_RUN_ID})"
+          git push --quiet origin "HEAD:refs/heads/${branch}"
+          gh label create break-glass --color 000000 --description "break-glass log lines (rollback.yml)" 2>/dev/null || true
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')" ]; then
+            gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" --label break-glass \
+              --title "break-glass: ${SLUG} (${TINES_ENV}) — log lines from run ${GITHUB_RUN_ID}" \
+              --body "Log line(s) written by rollback.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Merge as-is: the log is append-only." >/dev/null
+          fi
+          { echo "**Bypass intent logged** in \`policies/break-glass-log.md\` on \`${branch}\`:"; echo; echo "$row"; echo; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Promote (normally if APPROVED; otherwise bypass_approval with the mandatory reason)
+        id: promote
+        env:
+          APPROVED: ${{ steps.status.outputs.approved }}
+        run: |
+          set -euo pipefail
+          if [ "$APPROVED" = "true" ]; then
+            ./scripts/tines cr-promote "$SLUG" --env "$TINES_ENV" --change-request-id "$CR_ID" --draft "$DRAFT_ID" --delete-draft
+            echo "bypassed=false" >> "$GITHUB_OUTPUT"
+            echo "The approver approved in time: promoted **without** bypass. No break-glass log line is needed for this step." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "bypassed=true" >> "$GITHUB_OUTPUT"
+            ./scripts/tines cr-promote "$SLUG" --env "$TINES_ENV" --change-request-id "$CR_ID" --draft "$DRAFT_ID" --delete-draft \
+              --bypass-approval --reason "$REASON"
+            echo "**Promoted with bypass_approval** (break-glass). The log line follows." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Tag the release version
+        if: steps.promote.outcome == 'success'
+        run: ./scripts/tines version-create "$SLUG" --env "$TINES_ENV" --name "release rollback-${TARGET_SHA::7}"
+
+      - name: Append the OUTCOME row to policies/break-glass-log.md and commit it in this run
+        if: always() && steps.promote.outputs.bypassed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: bypass_approval
+          OUTCOME: ${{ steps.promote.outcome == 'success' && 'ok' || 'failed' }}
+          ROLE: ${{ steps.twoperson.outputs.role }}
+        run: |
+          set -euo pipefail
+          branch="break-glass/${SLUG}/${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch --quiet origin "refs/heads/${branch}" && git switch --quiet -C "$branch" FETCH_HEAD
+          else
+            git switch --quiet -c "$branch"
+          fi
+          row=$(python3 scripts/break_glass_log.py --slug "$SLUG" --env "$TINES_ENV" --action "$ACTION" --outcome "$OUTCOME" \
+                  --reason "$REASON" --change-request-id "$CR_ID" --run-id "$GITHUB_RUN_ID" --pr-url "${PR_URL:-}" --role "$ROLE")
+          git add policies/break-glass-log.md
+          git commit --quiet -m "break-glass(${SLUG}): ${ACTION} in ${TINES_ENV} (rollback.yml run ${GITHUB_RUN_ID})"
+          git push --quiet origin "HEAD:refs/heads/${branch}"
+          gh label create break-glass --color 000000 --description "break-glass log lines (rollback.yml)" 2>/dev/null || true
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')" ]; then
+            gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" --label break-glass \
+              --title "break-glass: ${SLUG} (${TINES_ENV}) — log lines from run ${GITHUB_RUN_ID}" \
+              --body "Log line(s) written by rollback.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Merge as-is: the log is append-only. Add the Tines audit-log ids and the follow-up PR in a **new** row once known (\`./scripts/tines audit --after <time> --story-id <id>\`)." >/dev/null
+          fi
+          { echo; echo "**Logged** in \`policies/break-glass-log.md\` on \`${branch}\`:"; echo; echo "$row"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tell the ops channel (router)
+        if: always() && steps.promote.outcome != 'skipped'
+        env:
+          OUTCOME: ${{ steps.promote.outcome }}
+          BYPASSED: ${{ steps.promote.outputs.bypassed }}
+        run: |
+          set -euo pipefail
+          [ -n "${OPS_ROUTER_URL:-}" ] || exit 0
+          jq -n --arg slug "$SLUG" --arg env "$TINES_ENV" --arg cr "$CR_ID" --arg outcome "$OUTCOME" --arg bypassed "${BYPASSED:-false}" \
+                --arg reason "$REASON" --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{source: "rollback.yml", event: "break_glass_promote", env: $env, slug: $slug, change_request_id: $cr,
+              outcome: $outcome, bypass_approval: ($bypassed == "true"), reason: $reason, run_url: $run}' > "$RUNNER_TEMP/notify.json"
+          curl -sS -m 15 -o /dev/null -X POST -H "Content-Type: application/json" --data @"$RUNNER_TEMP/notify.json" "$OPS_ROUTER_URL" \
+            || echo "::warning title=break-glass::the ops router notification failed — post in the ops channel by hand"
+
+  # ------------------------------------------------------------------------------------------------------------ #
+  # BREAK-GLASS 3 · re-enable after the approver confirms — toggles back, logged
+  # ------------------------------------------------------------------------------------------------------------ #
+  break-glass-re-enable:
+    name: break-glass — re-enable the story (two reviewers, logged)
+    needs: [plan, break-glass-second-approval]
+    if: needs.plan.outputs.mode == 're-enable' && needs.break-glass-second-approval.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: break-glass
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.key_secret] }}
+      TINES_ENV: ${{ needs.plan.outputs.target_env }}
+      TINES_ALLOW_PROD: ${{ needs.plan.outputs.target_env == 'prod' && '1' || '0' }}
+      BREAK_GLASS: "1"
+      OPS_ROUTER_URL: ${{ secrets.OPS_ROUTER_URL }}
+      SLUG: ${{ github.event.inputs.slug }}
+      REASON: ${{ github.event.inputs.reason }}
+      PR_URL: ${{ github.event.inputs.pr_url }}
+    steps:
+      - name: Two reviewers — two distinct people, neither the dispatcher, approved break-glass-2 and break-glass
+        id: twoperson
+        uses: actions/github-script@v7
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data } = await github.rest.actions.getReviewsForRun({ owner, repo, run_id: context.runId });
+            const approvals = data.filter(r => r.state === 'approved' && r.user && r.user.login !== process.env.ACTOR);
+            const on = env => new Set(approvals.filter(r => (r.environments || []).some(e => e.name === env)).map(r => r.user.login));
+            const first = on('break-glass-2'), second = on('break-glass');
+            const distinct = new Set([...first, ...second]);
+            if (!(first.size >= 1 && second.size >= 1 && distinct.size >= 2)) {
+              core.setFailed('break-glass needs two reviewers: approvals of `break-glass-2` and `break-glass` by two different people, neither the dispatcher (enable "Prevent self-reviews" on both environments).');
+            }
+            core.setOutput('role', `dispatcher + ${distinct.size} distinct approvers (break-glass-2, break-glass), none the dispatcher`);
+
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Log the INTENT row and push it (before the re-enable — a failed push stops the job here)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROLE: ${{ steps.twoperson.outputs.role }}
+        run: |
+          set -euo pipefail
+          branch="break-glass/${SLUG}/${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --quiet -c "$branch"
+          row=$(python3 scripts/break_glass_log.py --phase intent --slug "$SLUG" --env "$TINES_ENV" --action re-enable \
+                  --reason "$REASON" --run-id "$GITHUB_RUN_ID" --pr-url "${PR_URL:-}" --role "$ROLE")
+          git add policies/break-glass-log.md
+          git commit --quiet -m "break-glass(${SLUG}): intent to re-enable in ${TINES_ENV} (rollback.yml run ${GITHUB_RUN_ID})"
+          git push --quiet origin "HEAD:refs/heads/${branch}"
+          gh label create break-glass --color 000000 --description "break-glass log lines (rollback.yml)" 2>/dev/null || true
+          gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" --label break-glass \
+            --title "break-glass: ${SLUG} (${TINES_ENV}) — re-enabled (run ${GITHUB_RUN_ID})" \
+            --body "Re-enable log lines written by rollback.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Merge as-is: the log is append-only." >/dev/null
+          { echo "**Intent logged** in \`policies/break-glass-log.md\` on \`${branch}\`:"; echo; echo "$row"; echo; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Re-enable (POST …/disable toggles back; a no-op if the story is already enabled)
+        id: enable
+        run: |
+          set -euo pipefail
+          ./scripts/tines story-disable "$SLUG" --env "$TINES_ENV" --want enabled --reason "$REASON" | tee "$RUNNER_TEMP/enable.json"
+          {
+            echo "### Break-glass: \`${SLUG}\` re-enabled in ${TINES_ENV}"
+            echo
+            echo '```json'; cat "$RUNNER_TEMP/enable.json"; echo '```'
+            echo
+            echo "Confirm with \`./scripts/tines live-activity --env ${TINES_ENV} --slug ${SLUG}\` and the next sweep; \`drift.yml\` proves tonight that production equals \`main\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Append the OUTCOME row to policies/break-glass-log.md and commit it in this run
+        if: always() && steps.enable.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: re-enable
+          OUTCOME: ${{ steps.enable.outcome == 'success' && 'ok' || 'failed' }}
+          CR_ID: ""
+          ROLE: ${{ steps.twoperson.outputs.role }}
+        run: |
+          set -euo pipefail
+          branch="break-glass/${SLUG}/${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch --quiet origin "refs/heads/${branch}" && git switch --quiet -C "$branch" FETCH_HEAD
+          else
+            git switch --quiet -c "$branch"
+          fi
+          row=$(python3 scripts/break_glass_log.py --slug "$SLUG" --env "$TINES_ENV" --action "$ACTION" --outcome "$OUTCOME" \
+                  --reason "$REASON" --change-request-id "$CR_ID" --run-id "$GITHUB_RUN_ID" --pr-url "${PR_URL:-}" --role "$ROLE")
+          git add policies/break-glass-log.md
+          git commit --quiet -m "break-glass(${SLUG}): ${ACTION} in ${TINES_ENV} (rollback.yml run ${GITHUB_RUN_ID})"
+          git push --quiet origin "HEAD:refs/heads/${branch}"
+          { echo; echo "**Logged** in \`policies/break-glass-log.md\` on \`${branch}\`:"; echo; echo "$row"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tell the ops channel (router)
+        if: always() && steps.enable.outcome != 'skipped'
+        env:
+          OUTCOME: ${{ steps.enable.outcome }}
+        run: |
+          set -euo pipefail
+          [ -n "${OPS_ROUTER_URL:-}" ] || exit 0
+          jq -n --arg slug "$SLUG" --arg env "$TINES_ENV" --arg outcome "$OUTCOME" --arg reason "$REASON" \
+                --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{source: "rollback.yml", event: "break_glass_re_enable", env: $env, slug: $slug, outcome: $outcome, reason: $reason, run_url: $run}' \
+            > "$RUNNER_TEMP/notify.json"
+          curl -sS -m 15 -o /dev/null -X POST -H "Content-Type: application/json" --data @"$RUNNER_TEMP/notify.json" "$OPS_ROUTER_URL" \
+            || echo "::warning title=break-glass::the ops router notification failed"

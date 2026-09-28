@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentic-story-factory/sdlc/agents/contracts/story-qa.schema.json",
+  "title": "story-qa — input requirements and output payload",
+  "description": "Spec: REPO-DESIGN.md §5.3.8. story-qa runs the eval set against the DEV story through ./scripts/sdlc eval-run (which refuses TINES_ENV=prod and writes .sdlc/out/<slug>/qa-*.json locally), grades the results, and returns this payload with no files and no patches. Every failing case is also one finding in the envelope's `findings` (rule eval.case_failed, path sdlc/work/<slug>/evals/cases.yaml#<case_id>, severity major, or blocker for a failing regression case). The human's verdict on human_verification_prompt is the PR's 'QA verification: pass/fail · by <role>' line, which sdlc.yml requires at G4.",
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "phase",
+        "inputs"
+      ],
+      "properties": {
+        "phase": {
+          "const": "verify"
+        },
+        "inputs": {
+          "type": "array",
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "eval_cases"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "tests"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "export"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "results",
+        "pass_k",
+        "credits_observed",
+        "human_verification_prompt"
+      ],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "changes_requested"
+          ],
+          "description": "pass only when every deterministic case passed and, where consistency matters (a customer-facing or side-effecting story), pass_k.value is 1"
+        },
+        "results": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "case_id",
+              "suite",
+              "kind",
+              "trials",
+              "passes",
+              "pass",
+              "observed_summary"
+            ],
+            "properties": {
+              "case_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+              },
+              "suite": {
+                "type": "string",
+                "enum": [
+                  "capability",
+                  "regression"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "deterministic",
+                  "model_graded"
+                ]
+              },
+              "trials": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "passes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pass": {
+                "type": "boolean",
+                "description": "deterministic: the one trial passed · model_graded: ALL k trials passed (pass^k)"
+              },
+              "observed_summary": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 600,
+                "description": "What the run showed, from eval-run's result file; never payload values beyond the sanitised case"
+              }
+            }
+          }
+        },
+        "pass_k": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "k",
+            "value"
+          ],
+          "properties": {
+            "k": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Share of model_graded cases whose k trials all passed; null when there is none"
+            }
+          }
+        },
+        "credits_observed": {
+          "type": "array",
+          "description": "From the AI Agent event metadata of the dev runs (meta model, tokens, credits_used); empty for a story without an AI Agent action. ./scripts/sdlc estimate --check uses these (cost.6, cost.9)",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "credits_used",
+              "input_tokens",
+              "output_tokens",
+              "model"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "credits_used": {
+                "type": "number",
+                "minimum": 0
+              },
+              "input_tokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_tokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "model": {
+                "type": "string",
+                "maxLength": 128,
+                "description": "As the event metadata reports it"
+              }
+            }
+          }
+        },
+        "human_verification_prompt": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 2000,
+          "description": "Self-contained: which dev story and runs to open in Tines, what to look for in each, and what counts as pass. No URL carrying a secret, no tenant hostname (<your-tenant>)"
+        }
+      }
+    },
+    "output": {
+      "description": "What ./scripts/sdlc apply validates the envelope's `payload` against: the full payload ($defs.payload) when the envelope verdict is done or changes_requested, or an empty object when it is needs_human or blocked (envelope.schema.json enforces which verdict allows which).",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 0
+        },
+        {
+          "$ref": "#/$defs/payload"
+        }
+      ]
+    }
+  }
+}

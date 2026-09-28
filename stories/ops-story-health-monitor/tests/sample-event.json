@@ -1,0 +1,18 @@
+{
+  "trigger": "router",
+  "alert_id": "0-0-2026-09-24T17-00",
+  "story_id": 0,
+  "story_name": "[SEC] 01 · Enrich IP (sub)",
+  "action_id": 0,
+  "action_name": "lookup_virustotal",
+  "action_type": "Agents::HTTPRequestAgent",
+  "source": "story_monitoring",
+  "category": "upstream_5xx",
+  "severity": "medium",
+  "count": 3,
+  "first_seen": "2026-09-24T17:00:00Z",
+  "last_seen": "2026-09-24T17:12:00Z",
+  "last_error_excerpt": "HTTP 503 from upstream after final retry (log id 0)",
+  "thread_ts": "0000000000.000000",
+  "channel": "#ops-tines"
+}

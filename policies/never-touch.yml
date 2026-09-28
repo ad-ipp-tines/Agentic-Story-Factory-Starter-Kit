@@ -1,0 +1,51 @@
+# policies/never-touch.yml — write-protected story ids, name patterns, folders and teams.
+#
+# Consumed by:
+#   .claude/hooks/guard-mcp.sh   -> reads `story_ids[]`, `teams[]`, `folders[]` and `name_patterns[]` (plus the manifest's
+#                                   stories[].prod.story_id and environments.prod.team_id / folder_id) and blocks ANY
+#                                   /mcp call whose input carries a protected id (as a number or a digits-only string),
+#                                   names a listed folder, or has any string matching a name pattern (exit 2). It fails
+#                                   closed when jq, yq, this file or the manifest is missing. The ops stories' owner
+#                                   builds them in the dev team with TINES_ALLOW_OPS_BUILD=1 (name patterns only).
+#   scripts/set_monitoring.py    -> reads `story_ids[]`; refuses a write unless it lands in the caller's own draft
+#                                   (ship_story.py / rollback.yml pass --draft <id> --via-draft)
+#   scripts/story_disable.py     -> reads `story_ids[]`; refuses a disable outside the break-glass jobs
+#   .github/workflows/propose-fix.yml -> reads `story_ids[]` and `name_patterns[]`; a match gets a diagnosis, never an edit
+#   the monitor's Conditions     -> read the `never_touch` mirror in the ops_limits Resource (story_ids, name_patterns;
+#                                   kept equal to this file by hand) before any proposal that would change a story;
+#                                   `[OPS]` stories can only be reported on
+# Only guard-mcp.sh reads `folders` and `teams`. scripts/lint-story.sh does NOT enforce this list
+# (lint_story.py lists `never_touch_targets` as not implemented).
+#
+# Rules for this file:
+#   - `story_ids` are plain integers so the hook can grep them. Keep it EMPTY until the first ship, then append
+#     every production story id. Never put 0 here (0 would match any zero in a tool input).
+#   - Placeholders only: `0` for ids until known. Real ids are appended by the follow-up PR that ship.yml opens.
+#   - Every entry carries a reason. Removing an entry needs a security-platform review (CODEOWNERS).
+
+version: 1
+
+story_ids: []                      # production story ids; append after the first ship (ints only)
+
+name_patterns:
+  - '^\[OPS\]'                     # the ops trio and the ops sub-stories [OPS] 11–17 — changed only through their own change requests
+  - '^\[KIT\]'                     # [KIT] 00 · Run the story factory (stories/kit-factory/). In a customer repository the setup-report
+                                   # PR (kit.yml → ./scripts/kit apply-config) also appends the hand-imported kit's live id to story_ids
+
+folders:
+  - '90 Seeds'                     # Library imports kept for reference; never demo from, never edit, never export as truth
+
+teams:
+  - 0                              # the prod team id (read by guard-mcp.sh; 0 is ignored as the placeholder). Replace 0 after first ship.
+
+reasons:
+  story_ids: "Production stories are reached only through ship.yml (import -> draft -> change request -> human approval)."
+  '^\[OPS\]': "ops-error-router, ops-story-health-monitor and ops-tools-server, and the ops sub-stories ops-get-error-logs, ops-get-story-export, ops-get-live-activity, ops-get-recent-runs, ops-get-ai-usage ([OPS] 11–15), ops-apply-alert-rule ([OPS] 16) and ops-request-approval ([OPS] 17), are locked in prod; the monitor may report on them, never change them."
+  '^\[KIT\]': "kit story; changed only through its own change request"
+  '90 Seeds': "Seed folder for Library imports (for example 87626, 1231438); reference only."
+  teams: "The production team: builders never author there; TINES_ENV=prod refuses every /mcp call regardless."
+
+# Exceptions are not configured here. The only paths that write to a listed story are:
+#   - ship.yml / rollback.yml (CI-prod key) into a named DRAFT + change request (set_monitoring.py --draft <id> --via-draft)
+#   - the monitor's apply sub-story after a verified approval, into a DRAFT + change request
+#   - the break-glass job (two reviewers, logged in policies/break-glass-log.md)

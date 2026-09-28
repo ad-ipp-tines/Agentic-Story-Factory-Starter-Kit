@@ -1,0 +1,119 @@
+# tests/expectations.yaml — [OPS] 10 · Monitor story health and credits.
+# The build skill posts tests/sample-event.json to the Send to Story entry `receive_from_router`
+# (`?draft=<name>` when change control is on) — the schedule entries cannot be "posted", so the router
+# path is the testable one — then reads the run (GET /api/v1/stories/{id}/runs, /runs/{guid}) and
+# asserts the block below. Run it in the DEV team only, with the dev Resources in place.
+#
+# Preconditions (Resources in the dev team, set [BY HAND] from ../resources/*.example.json):
+#   ops_limits.enabled = true · ops_limits.environment = "dev" · ops_lock = {"lock": "free"}
+#   ops_responders and ops_routing populated with placeholders · the six Record types exist.
+# The sample names a story_id of 0; in the dev team point it at a scratch story that really has a
+# level-4 log (deliberately fail one HTTP Request action first) so triage has evidence to cite.
+# This story has no `result` transform (it is not a sub-story); the asserted shape is the `verdict`
+# Event Transform, and the run must end on `release_lock`.
+
+entry_action: receive_from_router
+expected_actions_fired_min: 18                # normalize kill_switch is_sweep acquire_lock lock_acquired live_activity ai_usage_today recent_runs load_baselines findings write_info has_anomaly each_anomaly count_agent_runs under_run_cap rejected_proposals triage skip_critic verdict write_finding scrub post_thread kind_* release_lock
+no_error_logs_on:
+  - receive_from_router
+  - normalize
+  - acquire_lock                              # the CAS succeeds on a free lock; a 422 here means the lock was left held — check ops_lock
+  - live_activity
+  - ai_usage_today
+  - recent_runs
+  - load_baselines
+  - findings
+  - triage                                    # an output-schema validation failure logs here → Record + human, never a silent branch
+  - verdict
+  - write_finding
+  - release_lock
+result_action: verdict
+result_fields:                                # the keys `verdict` must emit, exactly
+  - story_id
+  - story_name
+  - final_severity
+  - category
+  - final_kind
+  - needs_human
+  - confidence
+  - finding_id
+must_not_fire:
+  - exit_busy                                 # the lock was free
+  - steal_lock
+  - capped                                    # under the daily run cap
+  - critic                                    # a medium finding does not reach the critic
+  - dispatch_fix                              # nothing on the auto-PR allow-list in the sample
+  - apply                                     # no approval in this run
+  - error
+  - dead_letter
+lock_released:
+  resource: ops_lock
+  expected_value: "free"                      # read the Resource after the run; a held lock is a failed test
+
+# Additional runs the build skill performs after the happy path; each is a separate event unless noted.
+variants:
+  kill_switch_off:
+    precondition: { resource: ops_limits, set: { enabled: false } }
+    event: same as tests/sample-event.json
+    must_fire: [receive_from_router, normalize, kill_switch]
+    must_not_fire: [acquire_lock, live_activity, triage, release_lock]
+    note: "kill_switch is a Trigger that simply does not pass; the run ends with no lock taken and no credits spent"
+  lock_busy_fresh:
+    precondition: { resource: ops_lock, set: { lock: "00000000-0000-0000-0000-000000000000|<now>" } }
+    event: same as tests/sample-event.json
+    must_fire: [acquire_lock, lock_busy, is_fresh_lock, exit_busy]
+    must_not_fire: [lock_acquired, live_activity, triage, error]
+    note: "the CAS returns 422 (excluded from log_error_on_status — VERIFY #19); the run exits quietly and the next scheduled sweep evaluates the story"
+  lock_busy_stale:
+    precondition: { resource: ops_lock, set: { lock: "00000000-0000-0000-0000-000000000000|2026-01-01T00:00:00Z" } }
+    event: same as tests/sample-event.json
+    must_fire: [acquire_lock, lock_busy, is_stale_lock, steal_lock, live_activity, release_lock]
+    must_not_fire: [exit_busy, error]
+    lock_released: { resource: ops_lock, expected_value: "free" }
+  healthy_sweep_costs_nothing:
+    event: { trigger: "schedule_15m", window_minutes: 15 }
+    note: "post to receive_from_router with trigger schedule_15m to simulate the cron; with no anomalous story in the dev team the run must never reach the agent"
+    must_fire: [normalize, kill_switch, is_sweep, acquire_lock, live_activity, ai_usage_today, recent_runs, findings, write_info, release_lock]
+    must_not_fire: [each_anomaly, triage, critic, request_approval, error]
+    ai_credits_used_max: 0
+  # Every slack_callback_* variant below is posted to slack_callback with the headers X-Slack-Request-Timestamp (now)
+  # and X-Slack-Signature computed over "v0:<timestamp>:<raw body>" with the DEV Slack app's signing secret (the
+  # credential slack_signing_secret in the dev team) — except slack_callback_forged_signature, which must be refused.
+  slack_callback_forged_signature:
+    event:
+      trigger: "slack_callback"
+      headers: { X-Slack-Request-Timestamp: "<now>", X-Slack-Signature: "v0=0000000000000000000000000000000000000000000000000000000000000000" }
+      payload: '{"type":"block_actions","user":{"id":"U000001","username":"a-listed-approver"},"actions":[{"action_id":"approve","value":"{\"proposal_id\":\"prop-test-0002\",\"decision\":\"approve\"}"}],"message":{"ts":"0000000000.000000"},"channel":{"id":"C000000"}}'
+    precondition: { record: ops_alert_proposals, exists: { proposal_id: "prop-test-0002", status: pending, kind: disable, approvals_count: 0 } }
+    must_fire: [normalize, kill_switch, is_callback, verify_slack_signature]
+    must_not_fire: [is_signed_callback, parse_callback, resolve_user, load_proposal, is_verified_approver, mark_first_approval, apply, mark_applied]
+    record_after: { ops_alert_proposals: { proposal_id: "prop-test-0002", status: pending, approvals_count: 0 } }
+    note: "a forged block_actions body naming a LISTED approver's user id with decision approve — posted twice with two different listed ids, it must still change nothing: the signature is wrong, so the run stops at is_signed_callback. Repeat with a correct signature over a timestamp older than 300 s (a replay): same result."
+  slack_callback_unverified:
+    event:
+      trigger: "slack_callback"
+      payload: '{"type":"block_actions","user":{"id":"U000000","username":"not-an-approver"},"actions":[{"action_id":"approve","value":"{\"proposal_id\":\"prop-test-0001\",\"decision\":\"approve\"}"}],"message":{"ts":"0000000000.000000"},"channel":{"id":"C000000"}}'
+    precondition: { record: ops_alert_proposals, exists: { proposal_id: "prop-test-0001", status: pending, kind: alert_rule } }
+    must_fire: [normalize, kill_switch, is_callback, verify_slack_signature, is_signed_callback, parse_callback, resolve_user, load_proposal, not_verified, deny_callback]
+    must_not_fire: [acquire_lock, is_verified_approver, apply, mark_applied, error]
+    note: "correctly signed, but the button is UI; ops_responders is the control — an email not in ops_responders.alert_rule is refused with an ephemeral message"
+  slack_callback_approve_alert_rule:
+    event: same shape as slack_callback_unverified with a user whose resolved email is in ops_responders.alert_rule
+    precondition: { record: ops_alert_proposals, exists: { proposal_id: "prop-test-0001", status: pending, kind: alert_rule, expires_at: "<future>" } }
+    must_fire: [is_callback, verify_slack_signature, is_signed_callback, parse_callback, resolve_user, load_proposal, is_verified_approver, is_approve, is_fully_approved, apply, mark_applied]
+    must_not_fire: [acquire_lock, needs_second_approval, error]
+    record_after: { ops_alert_proposals: { proposal_id: "prop-test-0001", status: applied } }
+  slack_callback_disable_needs_two:
+    precondition: { record: ops_alert_proposals, exists: { proposal_id: "prop-test-0002", status: pending, kind: disable, approvals_count: 0 } }
+    event: an approve click from a user in ops_responders.disable
+    must_fire: [is_verified_approver, is_approve, needs_second_approval, mark_first_approval]
+    must_not_fire: [apply, mark_applied]
+    record_after: { ops_alert_proposals: { proposal_id: "prop-test-0002", status: pending, approvals_count: 1 } }
+    note: "a second, different approver's signed click reaches is_fully_approved → apply, which dispatches rollback.yml (emergency) rather than calling /disable; the same approver twice is refused in is_verified_approver"
+  never_touch_story:
+    precondition: { resource: ops_limits, set: { never_touch: { story_ids: [0], name_patterns: ["^\\[OPS\\]"] } } }
+    event: same as tests/sample-event.json
+    must_fire: [triage, verdict, write_finding, post_thread, kind_none, release_lock]
+    must_not_fire: [request_approval, open_issue, dispatch_fix, apply]
+    result_field_values: { final_kind: "none", needs_human: true }
+    note: "the never-touch guard in `verdict` overrides whatever kind the agent proposed"
