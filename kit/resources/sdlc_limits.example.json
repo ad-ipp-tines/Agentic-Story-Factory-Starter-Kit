@@ -1,0 +1,23 @@
+{
+  "enabled": false,
+  "gate_nudge_days": 3,
+  "guards_confirmed": false,
+  "pending_reset_hours": 24,
+  "retro_cadence_days": 30,
+  "runtime": {
+    "brief_writer": {
+      "credits_per_run_max": 2,
+      "runs_per_day_max": 20
+    },
+    "planner": {
+      "credits_per_run_max": 2,
+      "debounce_minutes": 60,
+      "runs_per_day_max": 4
+    },
+    "retro_writer": {
+      "credits_per_run_max": 3,
+      "runs_per_day_max": 5
+    }
+  },
+  "shadow_days": 7
+}

@@ -1,0 +1,368 @@
+{
+  "always_seeded": [
+    "example-enrich-ip",
+    "ops-story-health-monitor"
+  ],
+  "library_seeds": [
+    {
+      "id": 87626,
+      "name": "Analyze an IP in many services at once",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/87626/"
+    },
+    {
+      "id": 1231438,
+      "name": "Monitor action failures in Tines and notify via Slack",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1231438/"
+    },
+    {
+      "id": 1252750,
+      "name": "Get IP address information",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1252750/"
+    },
+    {
+      "id": 1321120,
+      "name": "Slack interactivity callback handling",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1321120/"
+    },
+    {
+      "id": 1253511,
+      "name": "Manage long-running jobs and check job status in Workbench",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1253511/"
+    },
+    {
+      "id": 1173034,
+      "name": "Create an IP enrichment API",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1173034/"
+    },
+    {
+      "id": 1347799,
+      "name": "Lookup IOCs via Slack using an agent",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1347799/"
+    },
+    {
+      "id": 1324549,
+      "name": "Host and run MCP servers in Tines",
+      "reference_only": true,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1324549/"
+    },
+    {
+      "id": 1258068,
+      "name": "Workbench from Slack links (WORKBENCH_LINK())",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1258068/"
+    },
+    {
+      "id": 1318509,
+      "name": "Perform deep research on a topic using an agent with Tavily",
+      "reference_only": false,
+      "role": "starter",
+      "url": "https://www.tines.com/library/stories/1318509/"
+    },
+    {
+      "id": 1331122,
+      "name": "Run workflows using OpenAI's AgentKit",
+      "reference_only": false,
+      "role": "alternate",
+      "url": "https://www.tines.com/library/stories/1331122/"
+    },
+    {
+      "id": 1252707,
+      "name": "Schedule a story",
+      "reference_only": false,
+      "role": "alternate",
+      "url": "https://www.tines.com/library/stories/1252707/"
+    }
+  ],
+  "milestone_default_owner": "platform",
+  "milestones": [
+    {
+      "criteria": [
+        "The setup report is ok, or partial with every failure explained",
+        "The repository and the tenant config commit exist",
+        "The Tines Agent Skills are pushed",
+        "The Record types and Resources exist, including the ops trio's six Record types",
+        "The provider probe is ok, or tool_calls_unreliable is acknowledged",
+        "/tines-connect works in at least one editor",
+        "K2 is confirmed, or phase-gate.sh is known to deny all /mcp calls until it is",
+        "Team memberships are checked: no builder account holds an Editor or Admin role in the prod (ops) team",
+        "Story #1 has passed G0 and discovery",
+        "Branch protection, CODEOWNERS and the GitHub environments are set",
+        "The provisioning token is revoked or expiring"
+      ],
+      "due_offset_days": 1,
+      "id": "day-1",
+      "title": "Day 1: the factory is provisioned and safe to build in"
+    },
+    {
+      "criteria": [
+        "Story #1 is live through G5",
+        "Story #2 is live and is every production story's recipient",
+        "[OPS] 10, the ops sweep, is live",
+        "The tracker round trip is proven: a Tines-side G0 reached main by PR",
+        "review.yml runs (called by sdlc.yml)",
+        "Token alerts are set on the kit's agents",
+        "Two or three more stories are in design or build"
+      ],
+      "due_offset_days": 7,
+      "id": "week-1",
+      "title": "Week 1: the first stories are live and the tracker round trip works"
+    },
+    {
+      "criteria": [
+        "At least 3 stories are live, including one mode-3-agent with an output schema, a Trigger, a token alert, a skill and a budget line",
+        "The ops sweep is running with baselines",
+        "The first retro is closed and at least one eval case has graduated to regression",
+        "One skill change has shipped via skills.yml",
+        "The dashboard is in use",
+        "Credits have been reviewed against estimates",
+        "G7 dates are set"
+      ],
+      "due_offset_days": 28,
+      "id": "week-4",
+      "title": "Week 4: the lifecycle runs end to end, including improve"
+    }
+  ],
+  "page_pick_options": [
+    "example-enrich-ip",
+    "ops-error-router",
+    "ip-info-tool",
+    "slack-approval-callbacks",
+    "long-job-status",
+    "enrichment-api",
+    "ioc-lookup-slack-agent",
+    "ops-tools-server",
+    "alert-to-workbench",
+    "research-agent",
+    "custom",
+    "none"
+  ],
+  "seed_ids": [
+    87626,
+    1231438,
+    1252750,
+    1321120,
+    1253511,
+    1173034,
+    1347799,
+    1324549,
+    1258068,
+    1318509,
+    1331122,
+    1252707
+  ],
+  "source": [
+    "kit/catalog/starter-stories.yaml",
+    "kit/catalog/library-seeds.yaml",
+    "kit/tracker/milestones.yaml (id, title, criteria, due_offset_days)"
+  ],
+  "starter_stories": [
+    {
+      "credit_estimate_basis": "no AI Agent action",
+      "credit_estimate_monthly": 0,
+      "key": "example-enrich-ip",
+      "library_seed_id": 87626,
+      "milestone": "week-1",
+      "mode": "sub-story",
+      "n": 1,
+      "needs_entitlements": [],
+      "owner": "security-automation",
+      "page_pick": true,
+      "target_offset_days": 7,
+      "tier": "production",
+      "title": "[SEC] 01 · Enrich IP (sub)",
+      "use_case": "Enrich an IP from several reputation services and return one verdict."
+    },
+    {
+      "credit_estimate_basis": "no AI Agent action",
+      "credit_estimate_monthly": 0,
+      "key": "ops-error-router",
+      "library_seed_id": 1231438,
+      "milestone": "week-1",
+      "mode": "none",
+      "n": 2,
+      "needs_entitlements": [
+        "records"
+      ],
+      "owner": "ops",
+      "page_pick": true,
+      "target_offset_days": 7,
+      "tier": "ops",
+      "title": "[OPS] 01 · Route monitoring alerts",
+      "use_case": "Receive every production story's monitoring notifications, dedupe them and route them to the ops channel."
+    },
+    {
+      "credit_estimate_basis": "no AI Agent action; Workbench conversations that call it spend Workbench credits",
+      "credit_estimate_monthly": 0,
+      "key": "ip-info-tool",
+      "library_seed_id": 1252750,
+      "milestone": "week-1",
+      "mode": "sub-story",
+      "n": 3,
+      "needs_entitlements": [],
+      "owner": "security-automation",
+      "page_pick": true,
+      "target_offset_days": 7,
+      "tier": "production",
+      "title": "[SEC] 02 · Get IP address information (sub)",
+      "use_case": "Return address information for one IP as a sub-story that can also be enabled as a Workbench tool."
+    },
+    {
+      "credit_estimate_basis": "no AI Agent action",
+      "credit_estimate_monthly": 0,
+      "key": "slack-approval-callbacks",
+      "library_seed_id": 1321120,
+      "milestone": "week-1",
+      "mode": "sub-story",
+      "n": 4,
+      "needs_entitlements": [],
+      "owner": "platform",
+      "page_pick": true,
+      "target_offset_days": 7,
+      "tier": "production",
+      "title": "[PLT] 01 · Handle Slack approval callbacks (sub)",
+      "use_case": "Receive Slack interactivity callbacks and hand each approval to the story that asked for it."
+    },
+    {
+      "credit_estimate_basis": "no AI Agent action",
+      "credit_estimate_monthly": 0,
+      "key": "long-job-status",
+      "library_seed_id": 1253511,
+      "milestone": "week-4",
+      "mode": "sub-story",
+      "n": 5,
+      "needs_entitlements": [],
+      "owner": "platform",
+      "page_pick": true,
+      "target_offset_days": 28,
+      "tier": "production",
+      "title": "[PLT] 02 · Track long-running jobs (sub)",
+      "use_case": "Start a long-running job, return a handle at once, and let callers check its status later."
+    },
+    {
+      "credit_estimate_basis": "no AI Agent action",
+      "credit_estimate_monthly": 0,
+      "key": "enrichment-api",
+      "library_seed_id": 1173034,
+      "milestone": "week-4",
+      "mode": "none",
+      "n": 6,
+      "needs_entitlements": [],
+      "owner": "platform",
+      "page_pick": true,
+      "target_offset_days": 28,
+      "tier": "production",
+      "title": "[PLT] 03 · Serve IP enrichment as an API",
+      "use_case": "Expose IP enrichment to other systems as an authenticated API."
+    },
+    {
+      "credit_estimate_basis": "set at design: runs/day × credits/run observed in dev × 30",
+      "credit_estimate_monthly": null,
+      "key": "ioc-lookup-slack-agent",
+      "library_seed_id": 1347799,
+      "milestone": "week-4",
+      "mode": "mode-3-agent",
+      "n": 7,
+      "needs_entitlements": [
+        "ai_agent_action"
+      ],
+      "owner": "security-automation",
+      "page_pick": true,
+      "target_offset_days": 28,
+      "tier": "production",
+      "title": "[SEC] 03 · Look up IOCs from Slack with an agent",
+      "use_case": "Let an analyst ask in Slack about an indicator and get an agent's summary from the enrichment tools."
+    },
+    {
+      "credit_estimate_basis": "Mode 4 uses no model; it counts as a flow",
+      "credit_estimate_monthly": 0,
+      "key": "ops-tools-server",
+      "library_seed_id": 1324549,
+      "milestone": "week-4",
+      "mode": "mode-4-server",
+      "n": 8,
+      "needs_entitlements": [],
+      "owner": "ops",
+      "page_pick": true,
+      "target_offset_days": 28,
+      "tier": "ops",
+      "title": "[OPS] 20 · Ops tools (MCP server)",
+      "use_case": "Serve the ops read tools to AI clients as an MCP server."
+    },
+    {
+      "credit_estimate_basis": "set at design: Workbench conversations draw on unallocated credits, or on the preset team's allocation",
+      "credit_estimate_monthly": null,
+      "key": "alert-to-workbench",
+      "library_seed_id": 1258068,
+      "milestone": "after-week-4",
+      "mode": "mode-1-preset",
+      "n": 9,
+      "needs_entitlements": [],
+      "owner": "platform",
+      "page_pick": true,
+      "target_offset_days": 56,
+      "tier": "internal",
+      "title": "[PLT] 04 · Open alerts in Workbench from Slack",
+      "use_case": "Post alerts to Slack with a link that opens Workbench on the alert, with a preset that reaches the ops tools."
+    },
+    {
+      "credit_estimate_basis": "set at design",
+      "credit_estimate_monthly": null,
+      "key": "research-agent",
+      "library_seed_id": 1318509,
+      "milestone": "after-week-4",
+      "mode": "mode-3-agent",
+      "n": 10,
+      "needs_entitlements": [
+        "ai_agent_action"
+      ],
+      "owner": "platform",
+      "page_pick": true,
+      "target_offset_days": 56,
+      "tier": "internal",
+      "title": "[PLT] 05 · Research a topic with an agent",
+      "use_case": "Research a topic with an agent that searches the web and returns a sourced summary."
+    },
+    {
+      "credit_estimate_basis": "set at design: sweep runs/day × observed triage and critic credits × 30",
+      "credit_estimate_monthly": null,
+      "key": "ops-story-health-monitor",
+      "library_seed_id": null,
+      "milestone": "week-1",
+      "mode": "mode-3-agent",
+      "n": 11,
+      "needs_entitlements": [
+        "records",
+        "ai_agent_action"
+      ],
+      "owner": "ops",
+      "page_pick": false,
+      "target_offset_days": 7,
+      "tier": "ops",
+      "title": "[OPS] 10 · Monitor story health and credits",
+      "use_case": "Sweep every production story for failures, silence and credit burn, and propose fixes for a human to approve."
+    }
+  ],
+  "target_offset_days_by_milestone": {
+    "after-week-4": 56,
+    "day-1": 1,
+    "week-1": 7,
+    "week-4": 28
+  },
+  "version": 1
+}

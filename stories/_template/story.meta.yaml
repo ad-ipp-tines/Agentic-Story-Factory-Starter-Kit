@@ -1,0 +1,32 @@
+# story.meta.yaml — the per-story control file that lint, ship, the reviewer and the ops sweep read.
+# Spec: ../../DESIGN.md §3.6. Names only; never a value, never a hostname, never a person.
+
+slug: <slug>
+name: "[PREFIX] NN · Verb noun (sub)"        # must equal story.json name (versionReplace matches by name)
+mode: none | sub-story | mode-3-agent | mode-4-server
+owner_team: <team-prefix>                     # the [PREFIX] owner, as a role
+tier: production | internal | ops | seed
+change_control: required
+
+monitoring:
+  monitor_failures: true                      # story-level "Notify when any action fails"; ship.yml sets it on the draft
+  recipients: manifest                        # resolved by ship.yml from _manifest.yaml (router webhook + email DL)
+  no_events_watchdog: { action: "<entry or poll action name>", seconds: 7200 }   # ≈ 2× the expected interval
+
+keep_events_for_days: 30                      # export key keep_events_for is in seconds; ≥ 30 days for tier: production
+
+credentials: []                               # names only; must exist in each target team under the same name
+resources: []                                 # names only; JSON Resources the story reads
+records: []                                   # Record types by name; creation is [BY HAND] (whether /mcp can create them is VERIFY)
+
+ai:
+  agents: []                                  # one entry per AI Agent action:
+  # - name: <action name>
+  #   output_schema: true                     # the reviewer refuses an agent without one
+  #   token_alert: { notify: 150000, disable: 300000, period: daily }   # set on the Status tab [BY HAND]; mirrors policies/cost-ceilings.yml
+  #   skills: []                              # tines-skills/<name> attached [BY HAND]
+  #   budget_ref: "<slug>/<agent>"            # key in policies/cost-ceilings.yml: agents
+
+schedule_interval_seconds: 0                  # 0 = event-driven; used by the sweep's overlap check
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export; never typed

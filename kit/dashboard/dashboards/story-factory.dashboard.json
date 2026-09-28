@@ -1,0 +1,72 @@
+{
+  "description": "SKELETON — NOT A REAL EXPORT. This file lists the charts the Story factory dashboard carries (REPO-DESIGN.md §9.4) so reviewers can see what the §15.6 maintainer release builds; it is not an export and its keys are NOT the export's keys, which are not guessed. The release builds the dashboard once by hand over the three Record types in a maintainer dev team, exports it, and saves the export here, replacing this file entirely; ./scripts/kit bundle then carries it to [KIT] 00 A23 (POST /api/v1/dashboards/import {team_id, data, mode: new, new_name: Story factory}). Until then A23's import is expected to fail and the setup report says so. The release check (kit.yml job release; ./scripts/sdlc check --release, release_not_skeleton) fails while this description starts with SKELETON. Import resolves record charts against existing types by record_type_name: VERIFY K17. Dashboards chart Records and Cases only; record charts live only on team dashboards (the ops team); JSON fields are not filterable and are never used; the charts count and filter on TEXT_ENUM, NUMBER and TIMESTAMP fields, and two group by a TEXT field (owner, story_key), which the §15.6 release confirms.",
+  "name": "Story factory",
+  "skeleton": true,
+  "skeleton_scope": "team dashboard in the ops team (the manifest's prod team)",
+  "skeleton_limits": {
+    "dashboards_per_team": 20,
+    "charts_per_dashboard": 30,
+    "series_caps": { "bar": 100, "pie": 50, "stacked": 25 },
+    "snapshots": "email on a schedule: 10 per dashboard, 50 recipients each"
+  },
+  "skeleton_intended_charts": [
+    {
+      "title": "Stories by phase",
+      "type": "bar",
+      "record_type_name": "sdlc_backlog",
+      "measure": "count of records",
+      "group_by": "phase",
+      "field_types": { "phase": "TEXT_ENUM" }
+    },
+    {
+      "title": "Phase by owner",
+      "type": "stacked",
+      "record_type_name": "sdlc_backlog",
+      "measure": "count of records",
+      "group_by": "owner",
+      "stack_by": "phase",
+      "field_types": { "owner": "TEXT", "phase": "TEXT_ENUM" },
+      "note": "owner is a TEXT field; whether a stacked chart can group by TEXT is part of what the release confirms"
+    },
+    {
+      "title": "Open gates",
+      "type": "bar",
+      "record_type_name": "sdlc_backlog",
+      "measure": "count of records",
+      "group_by": "open_gate",
+      "filter": "open_gate is not none",
+      "field_types": { "open_gate": "TEXT_ENUM" }
+    },
+    {
+      "title": "Milestones",
+      "type": "pie",
+      "record_type_name": "sdlc_milestones",
+      "measure": "count of records",
+      "group_by": "status",
+      "field_types": { "status": "TEXT_ENUM" }
+    },
+    {
+      "title": "Credit estimate by story",
+      "type": "bar",
+      "record_type_name": "sdlc_backlog",
+      "measure": "credit_estimate_monthly",
+      "group_by": "story_key",
+      "field_types": { "credit_estimate_monthly": "NUMBER", "story_key": "TEXT" }
+    },
+    {
+      "title": "Specialist runs and credits over time",
+      "type": "bar",
+      "record_type_name": "sdlc_events",
+      "measure": "sum of credits_used",
+      "filter": "event_type is specialist_run",
+      "group_by": "created_at period: week if the chart can group by time, else day (the export decides)",
+      "field_types": { "credits_used": "NUMBER", "event_type": "TEXT_ENUM" }
+    }
+  ],
+  "skeleton_intended_notes": [
+    {
+      "title": "Gates and who decides",
+      "markdown": "G0 intake triage (owner or a G0 approver; the gate_decision Page) · G1 readiness (./scripts/sdlc ready) · G2 design approval (a CODEOWNER merges the design PR) · G3 plan approval (/sdlc-gate) · G4 verify and merge (CI + CODEOWNER + a human merge) · G5a first ship (the GitHub production environment's reviewer) · G5b change request (a named approver in Tines) · G6 go-live and G7 ownership review (the gate_decision Page) · GB budget (opened by code, released by a human) · GX escalation (the owner). The rules: sdlc/gates/README.md in the repository."
+    }
+  ]
+}

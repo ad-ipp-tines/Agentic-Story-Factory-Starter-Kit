@@ -1,0 +1,173 @@
+# .github/workflows/skills.yml — tenant-side Tines Agent Skills are code (DESIGN.md §3.4 "skills.yml"; the
+# build brief calls this workflow "push-skills"). Reviewed in the PR, pushed on merge.
+#
+# On every merge to main that touches tines-skills/**, inside the `production` GitHub environment:
+#   validate every tines-skills/<name>/SKILL.md  →  dry run (GET /api/v1/skills/<name>?team_id=, prints
+#   create vs update)  →  PUT /api/v1/skills/<name> (200) or POST /api/v1/skills (404), with
+#   metadata.git_sha and metadata.repo_path stamped.
+#
+# Renames: change the directory and the frontmatter `name` in one PR — the API rewrites the name in every AI
+# Agent action that references the skill. Deletion only by workflow_dispatch with `confirm_delete=<name>`
+# (DELETE /api/v1/skills/<name>?team_id=); removing the folder alone changes nothing in the tenant.
+# Attaching a skill to a Workbench preset or an AI Agent action is [BY HAND] — no API was found (VERIFY
+# docs/VERIFY.md #14) — and is recorded in stories/<slug>/story.meta.yaml ai.agents[].skills.
+#
+# Identity: the prod team's TEAM-scoped key (Editor role), named by stories/_manifest.yaml
+# environments.prod.api_key_secret and stored ONLY as a secret of the GitHub environment `production` — never a
+# repository secret, which any workflow on any branch could read. Never personal.
+# The team id comes from environments.prod.team_id (0 until the first ship) or the repository/environment
+# VARIABLE TINES_TEAM_ID_PROD — a team id is not a secret.
+#
+# Main only: a skill push changes production agent behaviour with no Tines-side approval, so the job refuses any
+# ref other than refs/heads/main (a workflow_dispatch can be started from any branch) and keeps REQUIRED REVIEWERS on
+# the `production` environment. Dispatch inputs are never expanded into shell: every skill name in `only` and
+# `confirm_delete` must match ^[a-z0-9]+(-[a-z0-9]+)*$ and reaches the script through an env var, quoted.
+
+name: skills
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tines-skills/**"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "comma-separated skill names to push (default: all)"
+        required: false
+        type: string
+      dry_run:
+        description: "only show create/update per skill; write nothing"
+        required: false
+        default: false
+        type: boolean
+      confirm_delete:
+        description: "DELETE exactly one skill from the prod team: type its name (leave empty to push)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skills-push
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  push:
+    name: push tines-skills/** to the prod team
+    # tines-skills/ from an unreviewed branch never reaches the prod team
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_ENV: prod
+      TINES_ALLOW_PROD: "1"
+      TEAM_ID_VAR: ${{ vars.TINES_TEAM_ID_PROD }}
+      INPUT_ONLY: ${{ github.event.inputs.only }}
+      INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+      INPUT_CONFIRM_DELETE: ${{ github.event.inputs.confirm_delete }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Resolve the prod team id and the secret name from stories/_manifest.yaml
+        id: plan
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, sys
+          import yaml
+
+          NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+          if os.environ.get("GITHUB_REF") != "refs/heads/main":
+              print(f"::error::skills pushes run from main only (this run is on {os.environ.get('GITHUB_REF')!r})"); sys.exit(1)
+          manifest = yaml.safe_load(pathlib.Path("stories/_manifest.yaml").read_text(encoding="utf-8")) or {}
+          prod = (manifest.get("environments") or {}).get("prod") or {}
+          team_id = int(prod.get("team_id") or 0)
+          override = (os.environ.get("TEAM_ID_VAR") or "").strip()
+          if team_id <= 0 and override.isdigit():
+              team_id = int(override)
+          if team_id <= 0:
+              print("::error::no prod team id: set environments.prod.team_id in stories/_manifest.yaml or the variable TINES_TEAM_ID_PROD")
+              sys.exit(1)
+          secret_name = str(prod.get("api_key_secret") or "TINES_API_KEY_PROD")
+          only = [s.strip() for s in (os.environ.get("INPUT_ONLY") or "").split(",") if s.strip()]
+          bad = [s for s in only if not NAME.fullmatch(s) or len(s) > 64]
+          confirm = (os.environ.get("INPUT_CONFIRM_DELETE") or "").strip()
+          if confirm and (not NAME.fullmatch(confirm) or len(confirm) > 64):
+              bad.append(confirm)
+          if bad:
+              print(f"::error::not a skill name (^[a-z0-9]+(-[a-z0-9]+)*$, <= 64 chars): {bad!r}"); sys.exit(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"team_id={team_id}\n")
+              fh.write(f"api_key_secret={secret_name}\n")
+              fh.write(f"only={','.join(only)}\n")   # validated names only; expanded by the steps from an env var
+          print(f"team_id={team_id} api_key_secret={secret_name} only={only or 'all'}")
+          PY
+
+      - name: Validate frontmatter and bodies (no tenant)
+        env:
+          ONLY: ${{ steps.plan.outputs.only }}
+        run: |
+          set -euo pipefail
+          only_args=()
+          IFS=',' read -r -a names <<<"${ONLY:-}"
+          for name in "${names[@]}"; do if [ -n "$name" ]; then only_args+=(--only "$name"); fi; done
+          ./scripts/tines skills-push --validate-only "${only_args[@]}"
+
+      - name: Dry run — create vs update per skill
+        if: github.event.inputs.confirm_delete == ''
+        env:
+          TINES_API_KEY: ${{ secrets[steps.plan.outputs.api_key_secret] }}
+          TEAM_ID: ${{ steps.plan.outputs.team_id }}
+          ONLY: ${{ steps.plan.outputs.only }}
+        run: |
+          set -euo pipefail
+          only_args=()
+          IFS=',' read -r -a names <<<"${ONLY:-}"
+          for name in "${names[@]}"; do if [ -n "$name" ]; then only_args+=(--only "$name"); fi; done
+          ./scripts/tines skills-push --team "$TEAM_ID" --env prod --dry-run --json \
+            "${only_args[@]}" | tee "$RUNNER_TEMP/skills-dry-run.json"
+
+      - name: Push (PUT existing, POST new; metadata.git_sha stamped)
+        if: github.event.inputs.confirm_delete == '' && github.event.inputs.dry_run != 'true'
+        env:
+          TINES_API_KEY: ${{ secrets[steps.plan.outputs.api_key_secret] }}
+          TEAM_ID: ${{ steps.plan.outputs.team_id }}
+          ONLY: ${{ steps.plan.outputs.only }}
+        run: |
+          set -euo pipefail
+          only_args=()
+          IFS=',' read -r -a names <<<"${ONLY:-}"
+          for name in "${names[@]}"; do if [ -n "$name" ]; then only_args+=(--only "$name"); fi; done
+          ./scripts/tines skills-push --team "$TEAM_ID" --env prod --json \
+            "${only_args[@]}" | tee "$RUNNER_TEMP/skills-push.json"
+          {
+            echo "## Tines Agent Skills pushed to the prod team (${GITHUB_SHA::7})"
+            echo
+            echo '```json'; cat "$RUNNER_TEMP/skills-push.json"; echo '```'
+            echo
+            echo "Attaching a skill to a Workbench preset or an AI Agent action is **by hand** in Tines (no API found — VERIFY #14); record it in \`story.meta.yaml\` \`ai.agents[].skills\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete one skill (workflow_dispatch with confirm_delete only)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm_delete != ''
+        env:
+          TINES_API_KEY: ${{ secrets[steps.plan.outputs.api_key_secret] }}
+          NAME: ${{ github.event.inputs.confirm_delete }}
+        run: |
+          set -euo pipefail
+          if [ -d "tines-skills/${NAME}" ]; then
+            echo "::error::tines-skills/${NAME}/ still exists — remove the folder in a merged PR before deleting it from the tenant"
+            exit 1
+          fi
+          ./scripts/tines skills-push --team "${{ steps.plan.outputs.team_id }}" --env prod --delete "$NAME" --confirm "$NAME" --json
+          echo "## Deleted Tines Agent Skill \`${NAME}\` from the prod team (DELETE /api/v1/skills/${NAME}?team_id=)" >> "$GITHUB_STEP_SUMMARY"

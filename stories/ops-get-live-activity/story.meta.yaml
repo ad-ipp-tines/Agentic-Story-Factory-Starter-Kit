@@ -1,0 +1,36 @@
+# story.meta.yaml — [OPS] 13 · Get live activity (sub). Contract: ../ops-story-health-monitor/agent/tools.md.
+# Names only; never a value, never a hostname, never a person. NOT BUILT YET — no story.json until the first /tines-export.
+
+slug: ops-get-live-activity
+name: "[OPS] 13 · Get live activity (sub)"          # must equal story.json name
+mode: sub-story                               # Send to Story tool of the sweep's triage agent (Mode 3) and of ops-tools-server (Mode 4)
+owner_team: OPS                               # the [OPS] prefix; owner role: ops; CODEOWNERS: security-platform
+tier: ops
+change_control: required
+locked_in_prod: true                          # `locked: true` via ./scripts/tines story-update after ship (see _manifest.yaml locked_slugs)
+never_touch: true                             # policies/never-touch.yml name pattern ^\[OPS\]; changed only through its own change request
+
+monitoring:
+  monitor_failures: true                      # story-level "Notify when any action fails"
+  recipients: manifest                        # resolved by ship.yml from _manifest.yaml
+  no_events_watchdog: null                    # event-driven (called, never scheduled); the sweep's own watchdog covers silence
+
+keep_events_for_days: 30                      # raised [BY HAND] above the 7-day default
+
+credentials:
+  - tines_api_readonly                        # Text; Viewer-role TEAM key (read-only by role — VERIFY #18); allowed_hosts = the tenant host; Workbench access off
+resources: []
+records: []
+
+ai:
+  agents: []                                  # no AI Agent action; no credits
+
+schedule_interval_seconds: 0                  # event-driven
+
+send_to_story:
+  access: team
+  timeout_seconds: 20                         # under the Mode 4 server's 30-second tool ceiling
+
+result_fields: [not_working_actions_count, pending_action_runs_count, monitor_failures, recipients_count]
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export; never typed

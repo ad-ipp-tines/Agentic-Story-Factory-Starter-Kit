@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# scripts/tines — the one dispatcher the skills, hooks and permission rules call
+# (DESIGN.md §3.5). Subcommands map onto the Python scripts in this directory;
+# the Tines API endpoints behind each are listed in scripts/README.md.
+#
+# Permission rules in .claude/settings.json are per subcommand prefix, e.g.
+#   allow: Bash(./scripts/tines runs *)        ask: Bash(./scripts/tines export *), Bash(./scripts/tines import-draft *)
+#   deny:  Bash(./scripts/tines cr-promote *)
+# so keep the subcommand names stable.
+#
+# Environment: TINES_TENANT, TINES_API_KEY (team-scoped), TINES_ENV, TINES_ALLOW_PROD.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+py="${PYTHON:-python3}"
+
+usage() {
+  cat >&2 <<'EOF'
+usage: ./scripts/tines <subcommand> [args]
+
+  export <slug> [--env dev] [--draft ID] [--out FILE]          GET  /api/v1/stories/{id}/export (normalised)
+                    (--out only under .sdlc/, stories/<slug>/, or $RUNNER_TEMP and .tines/drift/ in CI; --raw only in CI)
+  webhook-url <slug> [--env dev] [--story-id ID] [--action NAME]   GET  /api/v1/stories/{id}/export, in memory:
+                    ONE Webhook's path and secret, printed (masked) only when GITHUB_ACTIONS=true
+  import-draft <slug> --env ENV [--draft-name N] [--dry-run]    POST /api/v1/stories/import (versionReplace + draft)
+  cr-open <slug> --env ENV --draft ID [--title ..]              POST /api/v1/stories/{id}/change_request
+  cr-view <slug> --env ENV --draft ID [--json]                  GET  /api/v1/stories/{id}/change_request/view
+  version-create <slug> --env ENV --name N                      POST /api/v1/stories/{id}/versions
+  versions-list <slug> --env ENV                                GET  /api/v1/stories/{id}/versions
+  recipients-add <slug> --env ENV --address A [--draft ID]      POST /api/v1/stories/{id}/recipients
+  recipients-remove <slug> --env ENV --address A [--draft ID]   DELETE /api/v1/stories/{id}/recipients
+  story-update <slug> --env ENV --monitor-failures B [--locked B] [--draft ID]   PUT /api/v1/stories/{id}
+  action-update <slug> --env ENV --action-id ID --monitor-no-events S [--draft ID]  PUT /api/v1/actions/{id}
+  ship <slug>... --env ENV [--dry-run] [--summary-file F]      version → import-draft → recipients/monitor → cr-open → cr-view
+                                                                (the chain ship.yml runs per story; never promotes)
+  skills-push --team ID [--dry-run] [--only NAME] [--delete NAME --confirm NAME]   /api/v1/skills
+  lint <story.json|dir> [--format json|github]                  deterministic checks (no network)
+  diff <story.json> [--against REF|FILE]                        semantic diff (no network)
+  manifest-set-dev-id <slug> <id>                               writes ONLY stories.<slug>.dev.story_id in stories/_manifest.yaml
+                    (no network; only while it is 0; refuses an id another manifest entry or never-touch holds)
+
+  read-only (allow in the IDE):
+  live-activity [--env ENV] [--slug S|--story-id ID] [--attention]  GET /api/v1/stories?filter=PUBLISHED&include_live_activity=true
+                                                                    GET /api/v1/stories/{id}?include_live_activity=true
+  action-logs <action_id> [--level 4] [--limit N]                   GET /api/v1/actions/{id}/logs?level=4
+  runs <slug> --env ENV [--since TS|1h] [--summary GUID|--events GUID]   GET /api/v1/stories/{id}/runs?since= (+ /runs/{guid}[/summary])
+  ai-usage [--relative_date today | --start_date D --end_date D] [--group_by story|team|action|day] [--story-id ID]
+           [--check-ceilings [policies/cost-ceilings.yml] --report-file F]   GET /api/v1/ai_usage
+  audit --after TS|24h [--story-id ID]... [--operation-name N]... [--mcp-only] [--format markdown]
+                                                                    GET /api/v1/audit_logs?after=&per_page=&page=
+
+  changes the tenant (ask in the IDE):
+  story-disable <slug> --env ENV [--want disabled|enabled] [--reason R]   POST /api/v1/stories/{id}/disable
+                    (TOGGLES; bypasses change control; prod needs BREAK_GLASS=1 — the break-glass job)
+  resource-cas <resource_id> --key K --value V --if-value E [--typed]    POST /api/v1/global_resources/{id}/replace
+                    (422 = the current value is not E; exit 3)
+
+  CI only (deny in the IDE):
+  cr-promote <slug> --env ENV --change-request-id ID --draft ID --delete-draft
+                    POST /api/v1/stories/{id}/change_request/promote — only a request whose status is APPROVED,
+                    only when GITHUB_ACTIONS=true (promote.yml). --bypass-approval --reason R only with BREAK_GLASS=1
+                    inside rollback.yml's break-glass-promote job. A person approves in Tines; nothing here approves.
+EOF
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+cmd="$1"; shift
+
+case "$cmd" in
+  export)            exec "$py" "$here/export_story.py" "$@" ;;
+  webhook-url)       exec "$py" "$here/export_story.py" webhook-url "$@" ;;
+  import-draft)      exec "$py" "$here/import_story.py" "$@" ;;
+  cr-open)           exec "$py" "$here/change_request.py" open "$@" ;;
+  cr-view)           exec "$py" "$here/change_request.py" view "$@" ;;
+  version-create)    exec "$py" "$here/story_version.py" create "$@" ;;
+  versions-list)     exec "$py" "$here/story_version.py" list "$@" ;;
+  recipients-add)
+    # translate --address A into --add-recipient A
+    args=(); while [ $# -gt 0 ]; do
+      if [ "$1" = "--address" ]; then args+=("--add-recipient" "$2"); shift 2; else args+=("$1"); shift; fi
+    done
+    exec "$py" "$here/set_monitoring.py" "${args[@]}" ;;
+  recipients-remove)
+    args=(); while [ $# -gt 0 ]; do
+      if [ "$1" = "--address" ]; then args+=("--remove-recipient" "$2"); shift 2; else args+=("$1"); shift; fi
+    done
+    exec "$py" "$here/set_monitoring.py" "${args[@]}" ;;
+  story-update)      exec "$py" "$here/set_monitoring.py" "$@" ;;
+  action-update)
+    args=(); while [ $# -gt 0 ]; do
+      if [ "$1" = "--monitor-no-events" ]; then args+=("--no-events-seconds" "$2"); shift 2; else args+=("$1"); shift; fi
+    done
+    exec "$py" "$here/set_monitoring.py" "${args[@]}" ;;
+  ship)              exec "$py" "$here/ship_story.py" "$@" ;;
+  skills-push)       exec "$py" "$here/push_skills.py" "$@" ;;
+  lint)              exec "$py" "$here/lint_story.py" "$@" ;;
+  diff)              exec "$py" "$here/diff_story.py" "$@" ;;
+  manifest-set-dev-id)
+    # the one narrow manifest write the builder is pre-approved for (/tines-build-story allowed-tools): the dev story id
+    # the create call returned — never yq -i, which could rewrite any file (REPO-DESIGN.md §15.2)
+    exec "$py" "$here/kit_config.py" set-dev-id "$@" ;;
+  live-activity)     exec "$py" "$here/live_activity.py" "$@" ;;
+  action-logs)       exec "$py" "$here/action_logs.py" "$@" ;;
+  runs)              exec "$py" "$here/story_runs.py" "$@" ;;
+  ai-usage)          exec "$py" "$here/ai_usage.py" "$@" ;;
+  audit)             exec "$py" "$here/audit_logs.py" "$@" ;;
+  story-disable)     exec "$py" "$here/story_disable.py" "$@" ;;
+  resource-cas)      exec "$py" "$here/resource_cas.py" "$@" ;;
+  cr-promote)
+    # Denied in the IDE (.claude/settings.json). The script itself refuses outside GitHub Actions, refuses any
+    # status but APPROVED, and accepts --bypass-approval only with BREAK_GLASS=1 in rollback.yml's
+    # break-glass-promote job. Approval is always a person in Tines.
+    if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+      echo "tines: cr-promote runs only in CI (promote.yml, or rollback.yml's break-glass job). Approve and push in Tines instead." >&2
+      exit 2
+    fi
+    exec "$py" "$here/promote_change_request.py" "$@" ;;
+  -h|--help|help)    usage ;;
+  *)                 echo "tines: unknown subcommand '$cmd'" >&2; usage ;;
+esac

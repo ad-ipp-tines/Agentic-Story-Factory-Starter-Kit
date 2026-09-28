@@ -1,0 +1,117 @@
+# story.meta.yaml — [OPS] 10 · Monitor story health and credits. Spec: ../../DESIGN.md §3.6 and ./DESIGN.md (§5).
+# Names only; never a value, never a hostname, never a person.
+
+slug: ops-story-health-monitor
+name: "[OPS] 10 · Monitor story health and credits"   # must equal story.json name
+mode: mode-3-agent                            # one AI Agent action in Task mode calling Tines tools (Send to Story sub-stories)
+owner_team: OPS                               # the [OPS] prefix; owner role: ops; CODEOWNERS: security-platform
+tier: ops
+change_control: required
+locked_in_prod: true                          # `locked: true` via ./scripts/tines story-update after ship (see _manifest.yaml locked_slugs)
+never_touch: true                             # policies/never-touch.yml name pattern ^\[OPS\]; changed only through its own change request
+
+monitoring:
+  monitor_failures: true                      # story-level "Notify when any action fails"
+  recipients:                                 # NOT `manifest`: the monitor is monitored by a different path than the one it feeds.
+    - "${OPS_EMAIL_DL}"                       # the email DL
+    # - a second Slack channel's incoming webhook, added [BY HAND] in the tenant (or a ${VAR} here, once ship.yml and rollback.yml pass that variable to their jobs).
+    # Never the ops router: a story cannot be its own monitoring recipient. ship.yml and rollback.yml
+    # (set_monitoring.py --from-manifest) add THIS list, not the manifest's.
+  no_events_watchdog: { action: "sweep_15m", seconds: 1800 }   # a dead monitor is itself an alert (2× the 15-minute interval)
+
+keep_events_for_days: 30                      # story.json keep_events_for: 2592000 — raised [BY HAND] above the 7-day default
+run_mode: LIVE                                # monitoring is unavailable in TEST mode; the sweep must run LIVE in dev too
+
+credentials:                                  # names only; must exist in the dev team and the prod team (the manifest's dev and prod environments)
+  - tines_api_readonly                        # Text; Viewer-role TEAM key (read-only by role — VERIFY #18); allowed_hosts = the tenant host; Workbench access off.
+                                              #   Used by: live_activity, ai_usage_today, recent_runs, pending_change_requests, audit_mcp_count — and by the five tool sub-stories.
+  - tines_api_ops_lock                        # Text; a separate TEAM key used for NOTHING but the ops_lock compare-and-swap
+                                              #   (POST /api/v1/global_resources/{id}/replace): acquire_lock, steal_lock, release_lock. The narrowest role that
+                                              #   can replace a Resource — VERIFY. allowed_hosts = the tenant host; Workbench access off; expires_at set.
+  - tines_api_dev_autofix                     # Text; Editor-role TEAM key that holds a real value ONLY IN THE DEV TEAM. Used by recipients_add_dev and
+                                              #   story_update_dev (dev-only coverage auto-fix). In the prod team the name holds no valid key (only if the
+                                              #   import needs the name to resolve — VERIFY #6), so both actions fail closed in prod even with a mis-set ops_limits.
+                                              #   The Editor-role tines_api_ops is NOT in this story: production writes happen only inside
+                                              #   [OPS] 16 · Apply approved alert rule (sub) (stories/ops-apply-alert-rule/). The reviewer greps for it.
+  - slack_bot                                 # Slack bot token as a credential; allowed_hosts = the Slack API host; used by post_thread, post_digest, resolve_user, deny_callback
+  - slack_signing_secret                      # Text; the Slack app's signing secret; used ONLY by verify_slack_signature (#77) to check X-Slack-Signature
+                                              #   on every approval callback before parse_callback. Never exported, never echoed; expires_at set.
+  - github_dispatch                           # used by open_issue and dispatch_fix (repository_dispatch → propose-fix.yml); allowed_hosts = api.github.com;
+                                              #   expires_at set with an expiry notification. Scope, stated: a GitHub App installation token limited to
+                                              #   Issues (write) plus the ONE permission the dispatch endpoint needs — repository_dispatch needs Contents
+                                              #   write on a fine-grained token (VERIFY against GitHub's permission table), which could also push branches, so
+                                              #   prefer a small relay endpoint that holds the token and accepts only the tines-fix-proposal event and an issue
+                                              #   body. Never a personal token. The backstop either way: branch protection on main (required checks, a
+                                              #   CODEOWNERS review, no self-merge), so nothing this credential pushes reaches production without people.
+
+resources:                                    # JSON Resources the story reads; shapes in ./resources/*.example.json; values set in the tenant
+  - ops_limits                                # kill switch, thresholds, budgets, caps, environment, never-touch mirror, ops_lock_resource_id
+  - ops_responders                            # who may approve which kind; two_required_for
+  - ops_routing                               # channel per slug; _approvals; _digest
+  - ops_lock                                  # {"lock": "free"} — compare-and-swap via POST /api/v1/global_resources/{id}/replace
+
+records:                                      # Record types by name; fields in ./records/record-types.md; creation [BY HAND] (VERIFY #26)
+  - ops_alerts
+  - ops_findings
+  - ops_alert_proposals
+  - ops_baselines
+  - ops_credit_ledger
+  - ops_dead_letter
+
+sub_stories:                                  # Send to Story targets this story calls (each its own folder, slug and PR)
+  agent_tools: [ops-get-error-logs, ops-get-story-export, ops-get-live-activity, ops-get-recent-runs, ops-get-ai-usage]
+  request_approval: ops-request-approval      # [OPS] 17 · Request approval (sub) — writes ops_alert_proposals, posts the Block Kit approval
+  apply: ops-apply-alert-rule                 # [OPS] 16 · Apply approved alert rule (sub) — the only place tines_api_ops writes to production;
+                                              #   a disable is dispatched to rollback.yml's break-glass job, never called directly
+
+ai:
+  agents:
+    - name: triage
+      mode: task
+      output_schema: true                     # ./agent/output-schema.json → options.output_structure
+      instructions: agent/system-instructions.md#1
+      tools: [ops_get_error_logs, ops_get_story_export, ops_get_live_activity, ops_get_recent_runs, ops_get_ai_usage]   # five Send to Story tools, Timeout Duration 20 s each; fixed set
+      mcp_connections: []                     # at most one, and only ever the Mode 4 ops-tools-server INSTEAD of the five tools — never alongside
+      temperature: 0.2
+      timeout_seconds: 120                    # raised from the 30 s default; maximum VERIFY
+      retries: 2                              # never the default 25
+      tool_output_truncation: true            # 50,000 tokens
+      model: smart                            # Task mode with a tool attached → the tenant's smart model
+      provider: tenant-default                # a custom provider bypasses credits but bills externally (billed_cost)
+      token_alert: { notify: 150000, disable: 300000, period: daily }   # Status tab [BY HAND]; mirrors policies/cost-ceilings.yml
+      skills: [story-health-triage, credit-budget-analyst]              # attached [BY HAND] (no API — VERIFY #14); recorded in tines-skills/_manifest.yaml
+      budget_ref: "ops-story-health-monitor/triage"
+    - name: critic
+      mode: task
+      output_schema: true                     # ./agent/critic-output-schema.json
+      instructions: agent/system-instructions.md#2
+      tools: []                               # tool-less on purpose → fast model, cheap by construction
+      mcp_connections: []
+      temperature: 0.2
+      timeout_seconds: 60
+      retries: 2
+      model: fast
+      provider: tenant-default
+      token_alert: { notify: 50000, disable: 100000, period: daily }
+      skills: []                              # none, on purpose (tines-skills/_manifest.yaml)
+      budget_ref: "ops-story-health-monitor/critic"
+  credits_policy: "A healthy sweep costs zero credits: only stories that fail the deterministic pre-filter reach triage; critic runs only for high/critical. Every run writes meta.credits_used, tokens and model to ops_findings."
+
+schedule_interval_seconds: 900                # the */15 sweep; the 06:00 daily sweep is the second schedule action (sweep_daily)
+schedules:
+  - { action: sweep_15m,   cron: "*/15 * * * *", timezone: "<tenant tz>", watchdog_seconds: 1800 }
+  - { action: sweep_daily, cron: "0 6 * * *",    timezone: "<tenant tz>", watchdog_seconds: 172800 }
+
+entries:                                      # three ways in; every one passes kill_switch first
+  - { kind: schedule,      action: sweep_15m }
+  - { kind: schedule,      action: sweep_daily }
+  - { kind: send_to_story, action: receive_from_router, caller: ops-error-router }
+  - { kind: webhook,       action: slack_callback, purpose: "Slack interactivity callbacks for the approval buttons; Slack signature + 5-minute window verified in-story (verify_slack_signature → is_signed_callback) before parsing; Include headers on; path/secret never exported" }
+
+send_to_story:
+  access: team
+  timeout_seconds: 30                         # the router's forward_to_sweep waits at most 30 s; whether a timed-out Send to Story lets this story keep running is VERIFY
+
+flows_note: "Sweep 1 + router 1 + Mode 4 server 1 + five read sub-stories + request sub-story + apply sub-story ≈ 10 flows; sub-stories-as-tools counting is VERIFY #13. Consolidate the five read tools into Custom tools (Groups) once stable."
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export; never typed

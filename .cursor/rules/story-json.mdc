@@ -1,0 +1,19 @@
+---
+description: Exported Tines story JSON files are generated artifacts
+globs: stories/**/story.json
+alwaysApply: false
+---
+
+# `story.json` is an export, not a source file
+
+- This file is produced by `/tines-export` from `GET /api/v1/stories/{id}/export` and normalised by `scripts/normalize.jq`. It is never typed and never hand-edited.
+- To change the story, change it in the **dev team** through the Tines Stories MCP server (`/mcp`, OAuth only, entry in the build-only worktree's `.cursor/mcp.json` — see `.cursor/mcp.json.example`) with `/tines-build-story <slug> "<change>"`, then run `/tines-export <slug>`.
+- Never edit `guid`, `links`, `diagram_layout` or the order of `agents[]` by hand: `links` reference agents **by index**, so a reorder or a removed entry silently rewires the story.
+- Recipients are cleared on export (`clear_recipients=true`) and set from `stories/_manifest.yaml` by `ship.yml`; do not add them here.
+- Credentials and Resources appear **by name only**. If a value that looks like a token, a secret, a resource body or an email address appears in this file: stop, do not commit, and report it.
+
+## Cursor specifics
+- The skills live in `.claude/skills/` — one tree serves Claude Code and Cursor, which reads that tree as a legacy path (documented behaviour; VERIFY in your Cursor version — docs/VERIFY.md #4). If Cursor stops discovering them, add a symlink: `ln -s ../.claude/skills .cursor/skills`.
+- Conventions come from `AGENTS.md`, which Cursor reads natively — that is why there is no always-on rule here.
+- Cursor's IDE agent **does not run this repo's Claude Code hooks** (`guard-mcp.sh`, `block-secrets.sh`, `lint-on-write.sh`, `stop-gate.sh`). In Cursor the enforcement is `lint.yml` and `review.yml` on the PR, and Tines change control ("Require approval for all changes") on the tenant. Run `./scripts/lint-story.sh stories/<slug>/story.json` yourself before committing.
+- The `/mcp` entry goes only in the project `.cursor/mcp.json` (gitignored) of a **separate build-only worktree** that opens the builder chat and nothing else — never the global `~/.cursor/mcp.json`, which would give it to every chat (per-chat scoping is VERIFY K4), and never this workspace's project file; no `headers` key (OAuth only, an API key will not work); saving triggers the OAuth consent. Whether Cursor accepts or needs a `type` key is VERIFY (#4).

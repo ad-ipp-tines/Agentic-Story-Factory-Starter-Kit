@@ -1,0 +1,66 @@
+# kit/tracker/milestones.yaml — the three onboarding milestones (day-1 · week-1 · week-4).
+#
+# Spec: REPO-DESIGN.md §11.1. Schema: milestones.schema.json. Field ↔ Record mapping: field-map.yaml.
+# kit/ONBOARDING.md is the runbook that mirrors this file; change the two together.
+#
+# Seeded in Tines by [KIT] 00 A22 (three sdlc_milestones rows with due dates = provisioning + due_offset_days, UTC),
+# and brought back here by tracker-pull.yml → ./scripts/kit tracker-fold. On the Community path (no Records),
+# ./scripts/kit apply-config fills an empty due_date from kit/tenant/config.yaml provisioned_at.
+# `status`, `due_date`, `evidence_ref` and `owner` may change in Tines (the App or a Record edit) and reach git by
+# PR; `title` and `criteria` change only here, by PR. Never edit by hand; the writers are ./scripts/kit and
+# ./scripts/sdlc. Owners are roles.
+
+version: 1
+milestones:
+  - id: day-1
+    title: "Day 1: the factory is provisioned and safe to build in"
+    criteria:
+      - "The setup report is ok, or partial with every failure explained"
+      - "The repository and the tenant config commit exist"
+      - "The Tines Agent Skills are pushed"
+      - "The Record types and Resources exist, including the ops trio's six Record types"
+      - "The provider probe is ok, or tool_calls_unreliable is acknowledged"
+      - "/tines-connect works in at least one editor"
+      - "K2 is confirmed, or phase-gate.sh is known to deny all /mcp calls until it is"
+      - "Team memberships are checked: no builder account holds an Editor or Admin role in the prod (ops) team"
+      - "Story #1 has passed G0 and discovery"
+      - "Branch protection, CODEOWNERS and the GitHub environments are set"
+      - "The provisioning token is revoked or expiring"
+    status: not_started
+    due_offset_days: 1
+    due_date: ""
+    evidence_ref: ""
+    owner: platform
+    rev: 1
+  - id: week-1
+    title: "Week 1: the first stories are live and the tracker round trip works"
+    criteria:
+      - "Story #1 is live through G5"
+      - "Story #2 is live and is every production story's recipient"
+      - "[OPS] 10, the ops sweep, is live"
+      - "The tracker round trip is proven: a Tines-side G0 reached main by PR"
+      - "review.yml runs (called by sdlc.yml)"
+      - "Token alerts are set on the kit's agents"
+      - "Two or three more stories are in design or build"
+    status: not_started
+    due_offset_days: 7
+    due_date: ""
+    evidence_ref: ""
+    owner: platform
+    rev: 1
+  - id: week-4
+    title: "Week 4: the lifecycle runs end to end, including improve"
+    criteria:
+      - "At least 3 stories are live, including one mode-3-agent with an output schema, a Trigger, a token alert, a skill and a budget line"
+      - "The ops sweep is running with baselines"
+      - "The first retro is closed and at least one eval case has graduated to regression"
+      - "One skill change has shipped via skills.yml"
+      - "The dashboard is in use"
+      - "Credits have been reviewed against estimates"
+      - "G7 dates are set"
+    status: not_started
+    due_offset_days: 28
+    due_date: ""
+    evidence_ref: ""
+    owner: platform
+    rev: 1

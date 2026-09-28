@@ -1,0 +1,533 @@
+# .github/workflows/drift.yml — keep the repository truthful and the budget visible (DESIGN.md §3.4 "drift.yml",
+# §7.5; policies/POLICY.md rule 5; docs/06-rollback-and-recovery.md §8).
+#
+# Nightly at 03:00 UTC (and on demand), two independent jobs with a READ-ONLY identity:
+#
+#   drift   per manifest slug with a prod story id:
+#             ./scripts/tines export <slug> --env prod --out .tines/drift/<slug>.json --no-stamp
+#               GET /api/v1/stories/{id}/export?randomize_urls=false&clear_recipients=true
+#             both sides through scripts/normalize.jq, then compared as data (key order never matters) after the
+#             two known, legitimate differences are applied to main's side:
+#               - `monitor_failures: true` — ship.yml sets it on every shipped story's draft
+#               - `locked: true` for the manifest's locked_slugs, when the export carries `locked` (VERIFY #8)
+#             and with the ingress identifiers `options.path` / `options.secret` left out on BOTH sides, by KEY NAME on
+#             EVERY action type (a Webhook, an MCP server action, a secret-mode Mode 4 path — not only Webhooks): they
+#             are per-environment ingress credentials (dev and prod differ by design; whether an import keeps the
+#             target's values is VERIFY #6). They are never copied from production into git: the PR file carries
+#             the <assigned-on-import> placeholder, and before anything is pushed the PR files are scanned with
+#             tines_common.SECRET_PATTERNS, an ingress-placeholder check and gitleaks (drift PRs are opened with
+#             GITHUB_TOKEN, so lint.yml's scans never run on them).
+#           when production differs from main:
+#             ./scripts/tines audit --after <main's last change to the story> --story-id <id> --format markdown
+#               GET /api/v1/audit_logs?after=&per_page=&page=   (client-side story filter; MCP rows flagged by
+#               heuristic until the operation name is known — VERIFY #17)
+#             one PR per story on branch drift/<slug> (label `drift`) that makes main equal production, with the
+#             attribution table and the semantic diff; a re-run updates the same PR. Summary POSTed to the router.
+#   budget  ./scripts/tines ai-usage --env prod --check-ceilings policies/cost-ceilings.yml
+#               GET /api/v1/ai_usage (stories today, teams and tenant month to date, agents' tokens today)
+#           one open issue labelled `budget` is created or updated when any team, story or agent is at or above
+#           80 % of its ceiling (the actionable alert: at 100 % the platform stops the story).
+#
+# It changes nothing in the tenant. Merging a drift PR accepts the tenant's state into main; closing it and running
+# rollback.yml restores main's state in the tenant (docs/06 §8). PRs opened with GITHUB_TOKEN do not trigger
+# lint.yml / review.yml themselves — push an empty commit from a person, or use a GitHub App token, if they must.
+#
+# Identity: CI-read — the Viewer-role TEAM-scoped key named by stories/_manifest.yaml
+# `environments.prod.read_key_secret` (TINES_API_KEY_PROD_READ), read-only by role (VERIFY #18: attempt a write,
+# expect 404). It lives in the GitHub environment `prod-read`: NO required reviewers (a nightly job must not wait
+# for a click), deployment branches limited to `main`. Whether a Viewer key may read audit logs and AI usage is
+# part of #18; if not, the attribution table and the budget job say so instead of failing the night.
+#
+#   TINES_TENANT               host prefix only
+#   TINES_API_KEY_PROD_READ    the Viewer-role key named in the manifest
+#   OPS_ROUTER_URL             optional — the ops-error-router webhook (carries a secret)
+
+name: drift
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "limit to these slugs, comma-separated (default: every slug with a prod story id)"
+        required: false
+        type: string
+      after:
+        description: "attribution window start, ISO 8601 (default: main's last change to each story, at most 30 days back)"
+        required: false
+        type: string
+      skip_budget:
+        description: "skip the budget job"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write # push drift/<slug> branches
+  pull-requests: write # open or update the drift PRs
+  issues: write # the budget issue and labels
+
+concurrency:
+  group: drift
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  # The gitleaks image pinned BY DIGEST — the same value as lint.yml's GITLEAKS_IMAGE. Until it is pinned, the scan
+  # step fails and no drift PR is pushed (fail closed).
+  GITLEAKS_IMAGE: "ghcr.io/gitleaks/gitleaks@sha256:<pin-a-verified-digest>"
+
+jobs:
+  plan:
+    name: plan (which production stories, which read key)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      entries: ${{ steps.plan.outputs.entries }}
+      read_key_secret: ${{ steps.plan.outputs.read_key_secret }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet pyyaml
+      - name: Production stories from stories/_manifest.yaml
+        id: plan
+        env:
+          INPUT_SLUG: ${{ github.event.inputs.slug }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, sys
+          import yaml
+
+          manifest = yaml.safe_load(pathlib.Path("stories/_manifest.yaml").read_text(encoding="utf-8")) or {}
+          prod = (manifest.get("environments") or {}).get("prod") or {}
+          stories = manifest.get("stories") or {}
+          wanted = [s.strip() for s in (os.environ.get("INPUT_SLUG") or "").split(",") if s.strip()]
+          unknown = [s for s in wanted if s not in stories]
+          if unknown:
+              print(f"::error::not in stories/_manifest.yaml: {', '.join(unknown)}"); sys.exit(1)
+          locked = set(prod.get("locked_slugs") or [])
+          entries = []
+          for slug, entry in stories.items():
+              if wanted and slug not in wanted:
+                  continue
+              story_id = int((((entry or {}).get("prod")) or {}).get("story_id") or 0)
+              if story_id <= 0:
+                  print(f"::notice::{slug}: no prod story id yet — nothing to compare")
+                  continue
+              entries.append({"slug": slug, "story_id": story_id, "locked": slug in locked})
+          outputs = {
+              "entries": json.dumps(entries),
+              "read_key_secret": str(prod.get("read_key_secret") or "TINES_API_KEY_PROD_READ"),
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              for k, v in outputs.items():
+                  fh.write(f"{k}={v}\n")
+          print(json.dumps(outputs, indent=2))
+          PY
+
+  drift:
+    name: production vs main (export, compare, attribute, PR)
+    needs: plan
+    if: needs.plan.outputs.entries != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: prod-read
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.read_key_secret] }}
+      TINES_ENV: prod
+      # The scripts refuse prod without this. This job holds a Viewer-role key and only reads.
+      TINES_ALLOW_PROD: "1"
+      OPS_ROUTER_URL: ${{ secrets.OPS_ROUTER_URL }}
+      PLANNED_ENTRIES: ${{ needs.plan.outputs.entries }} # the skip step below turns it into ENTRIES (§3.3 row 21)
+      INPUT_AFTER: ${{ github.event.inputs.after }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # main's last change to each story sets the attribution window
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      # REPO-DESIGN.md §3.3 row 21: after a G5a/G5b rejection, `./scripts/sdlc advance` prepares a revert on
+      # rollback/<slug>/<sha7>; until that PR merges, main is ahead of production on purpose, and a nightly drift PR
+      # would fight the rework branch. So a slug with an OPEN PR from any rollback/<slug>/* branch is skipped tonight.
+      # Read-only: `gh pr list`. The filtered list becomes ENTRIES, which the compare step reads.
+      - name: Skip slugs with an open rollback/<slug>/* PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          open_heads=$(gh pr list --state open --limit 500 --json headRefName --jq '.[].headRefName' < /dev/null)
+          filtered=$(OPEN_HEADS="$open_heads" python3 - <<'PY'
+          import json, os, sys
+          entries = json.loads(os.environ["PLANNED_ENTRIES"])
+          heads = [h for h in os.environ.get("OPEN_HEADS", "").splitlines() if h.startswith("rollback/")]
+          keep = []
+          for e in entries:
+              if any(h.startswith(f"rollback/{e['slug']}/") for h in heads):
+                  print(f"::notice title=drift::{e['slug']}: skipped — an open rollback/{e['slug']}/* PR is returning main to what is live", file=sys.stderr)
+                  continue
+              keep.append(e)
+          print(json.dumps(keep))
+          PY
+          )
+          echo "ENTRIES=${filtered}" >> "$GITHUB_ENV"
+
+      - name: Export production and compare with main (normalize.jq on both sides)
+        id: compare
+        run: |
+          python3 - <<'PY'
+          import copy, datetime as dt, json, os, pathlib, subprocess, sys, time
+          sys.path.insert(0, "scripts")
+          # The one definition of an ingress identifier (mirrors scripts/normalize.jq): options.path / options.secret
+          # on EVERY action, by key name — never by action type — unless the value is a formula or a placeholder.
+          from tines_common import INGRESS_KEYS, INGRESS_PLACEHOLDER, _ingress_value_to_replace
+
+          entries = json.loads(os.environ["ENTRIES"])
+          out = pathlib.Path(".tines/drift"); out.mkdir(parents=True, exist_ok=True)
+          now = dt.datetime.now(dt.timezone.utc)
+          floor = now - dt.timedelta(days=30)
+
+          def normalised(path):
+              """scripts/normalize.jq is the one definition of normalisation (DESIGN.md §3.5)."""
+              p = subprocess.run(["jq", "-c", "-f", "scripts/normalize.jq", str(path)], capture_output=True, text=True)
+              if p.returncode:
+                  raise RuntimeError(p.stderr.strip()[:300])
+              return json.loads(p.stdout)
+
+          def is_ingress(key, value):
+              """An ingress identifier or its placeholder — never a formula such as an Event Transform explode path."""
+              return value == INGRESS_PLACEHOLDER or _ingress_value_to_replace(key, value)
+
+          def without_ingress(export):
+              e = copy.deepcopy(export)
+              for agent in e.get("agents") or []:
+                  if isinstance(agent, dict) and isinstance(agent.get("options"), dict):
+                      for k in INGRESS_KEYS:
+                          if is_ingress(k, agent["options"].get(k)):
+                              agent["options"].pop(k)
+              return e
+
+          def carry_ingress(prod_export, main_export):
+              """The file the drift PR commits: production's export with every action's ingress identifiers replaced by
+              the <assigned-on-import> placeholder — by key name, on every action type. Production values never reach git."""
+              e = copy.deepcopy(prod_export)
+              main_by_guid = {a.get("guid"): a for a in (main_export or {}).get("agents") or [] if isinstance(a, dict)}
+              stripped = []
+              for agent in e.get("agents") or []:
+                  if not (isinstance(agent, dict) and isinstance(agent.get("options"), dict)):
+                      continue
+                  for k in INGRESS_KEYS:
+                      if not is_ingress(k, agent["options"].get(k)):
+                          continue
+                      agent["options"][k] = INGRESS_PLACEHOLDER
+                      if agent.get("guid") not in main_by_guid:
+                          stripped.append(agent.get("name"))  # an ingress action that exists only in production
+              return e, sorted(set(n for n in stripped if n))
+
+          def window_start(slug):
+              given = (os.environ.get("INPUT_AFTER") or "").strip()
+              if given:
+                  return given
+              p = subprocess.run(["git", "log", "-1", "--format=%cI", "--", f"stories/{slug}/story.json"], capture_output=True, text=True)
+              try:
+                  last = dt.datetime.fromisoformat(p.stdout.strip())
+              except ValueError:
+                  last = floor
+              return max(last.astimezone(dt.timezone.utc), floor).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          results = []
+          for i, e in enumerate(entries):
+              slug, story_id = e["slug"], e["story_id"]
+              if i:
+                  time.sleep(1)  # API rate limits (DESIGN.md §6.6)
+              prod_file = out / f"{slug}.json"
+              r = subprocess.run(["./scripts/tines", "export", slug, "--env", "prod", "--story-id", str(story_id),
+                                  "--out", str(prod_file), "--no-stamp"], capture_output=True, text=True)
+              sys.stderr.write(r.stderr)
+              row = {"slug": slug, "story_id": story_id}
+              if r.returncode:
+                  row.update(status="export_failed", detail=(r.stderr.strip().splitlines() or ["?"])[-1][:300])
+                  results.append(row); continue
+              try:
+                  actual = normalised(prod_file)
+                  repo_file = pathlib.Path("stories", slug, "story.json")
+                  main_export = normalised(repo_file) if repo_file.exists() else None
+              except (RuntimeError, json.JSONDecodeError) as exc:
+                  row.update(status="compare_failed", detail=str(exc)[:300]); results.append(row); continue
+              if main_export is None:
+                  status = "missing_in_main"
+              else:
+                  expected = copy.deepcopy(main_export)
+                  expected["monitor_failures"] = True  # ship.yml sets it on every shipped story
+                  if e.get("locked") and "locked" in actual:
+                      expected["locked"] = True  # locked_slugs get locked: true after ship (export key VERIFY #8)
+                  status = "in_sync" if without_ingress(expected) == without_ingress(actual) else "drifted"
+              row["status"] = status
+              if status in ("drifted", "missing_in_main"):
+                  pr_export, stripped = carry_ingress(actual, main_export)
+                  (out / f"{slug}.pr.json").write_text(json.dumps(pr_export, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+                  row.update(after=window_start(slug), webhook_ingress_stripped=stripped)
+              results.append(row)
+
+          (out / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+          counts = {s: sum(1 for r in results if r["status"] == s) for s in ("in_sync", "drifted", "missing_in_main", "export_failed", "compare_failed")}
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(f"## drift.yml — production vs main ({now:%Y-%m-%d %H:%M} UTC)\n\n")
+              fh.write("| slug | story id | status | detail |\n|---|---|---|---|\n")
+              for r in results:
+                  fh.write(f"| `{r['slug']}` | {r['story_id']} | **{r['status']}** | {str(r.get('detail') or '').replace('|', '/')} |\n")
+              fh.write("\n_Compared after scripts/normalize.jq on both sides, with ship.yml's `monitor_failures: true` (and `locked` for locked slugs) applied to main's side and every action's ingress `path`/`secret` left out of both — those are per-environment and never copied from production._\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"drifted={counts['drifted'] + counts['missing_in_main']}\n")
+              fh.write(f"failed={counts['export_failed'] + counts['compare_failed']}\n")
+          print(json.dumps(counts))
+          PY
+
+      - name: Scan the drift PR files before anything is pushed (secret patterns, ingress placeholders, gitleaks)
+        id: scan
+        if: steps.compare.outputs.drifted != '0'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, sys
+          sys.path.insert(0, "scripts")
+          from tines_common import INGRESS_KEYS, SECRET_PATTERNS, _ingress_value_to_replace
+
+          bad = 0
+          files = sorted(pathlib.Path(".tines/drift").glob("*.pr.json"))
+          for f in files:
+              text = f.read_text(encoding="utf-8")
+              for i, line in enumerate(text.splitlines(), 1):
+                  for name, pattern in SECRET_PATTERNS:  # the same list lint.yml applies to stories/ (header name included)
+                      if pattern.search(line):
+                          print(f"::error title=drift-scan::{f.name}:{i} matches secret pattern {name}"); bad += 1
+              for agent in json.loads(text).get("agents") or []:
+                  options = agent.get("options") if isinstance(agent, dict) else None
+                  if isinstance(options, dict):
+                      for k in INGRESS_KEYS:
+                          if _ingress_value_to_replace(k, options.get(k)):
+                              print(f"::error title=drift-scan::{f.name}: action {agent.get('name')!r} carries a real ingress {k}"); bad += 1
+          print(f"scanned {len(files)} drift PR file(s); {bad} finding(s)")
+          sys.exit(1 if bad else 0)
+          PY
+          if ! printf '%s' "$GITLEAKS_IMAGE" | grep -Eq '^[a-z0-9./_-]+@sha256:[0-9a-f]{64}$'; then
+            echo "::error title=drift-scan::GITLEAKS_IMAGE is not pinned by digest — no drift PR is pushed until it is (see lint.yml)"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/drift-scan"
+          cp .tines/drift/*.pr.json "${RUNNER_TEMP}/drift-scan/"
+          docker run --rm -v "${RUNNER_TEMP}/drift-scan:/scan:ro" "$GITLEAKS_IMAGE" \
+            detect --source /scan --no-git --redact --exit-code 1 --verbose
+
+      - name: Attribute each drifted story through the audit logs
+        if: steps.compare.outputs.drifted != '0'
+        run: |
+          set -euo pipefail
+          # fd 3 carries the list so nothing inside the loop can swallow it by reading stdin
+          while IFS= read -r row <&3; do
+            slug=$(jq -r '.slug' <<<"$row"); sid=$(jq -r '.story_id' <<<"$row"); after=$(jq -r '.after' <<<"$row")
+            if ! ./scripts/tines audit --env prod --after "$after" --story-id "$sid" --format markdown \
+                 > ".tines/drift/${slug}.audit.md" 2> ".tines/drift/${slug}.audit.err" < /dev/null; then
+              {
+                echo "#### Attribution — unavailable"
+                echo
+                echo "The audit-log read failed (\`$(tail -n1 ".tines/drift/${slug}.audit.err" | tr -d '|' | cut -c1-200)\`). A Viewer-role key may not be allowed to read audit logs (VERIFY #18); read them in Tines (Settings → Audit logs) for story \`${sid}\` since ${after}."
+              } > ".tines/drift/${slug}.audit.md"
+            fi
+            sleep 1
+          done 3< <(jq -c '.[] | select(.status == "drifted" or .status == "missing_in_main")' .tines/drift/results.json)
+
+      - name: Open or update one drift PR per story (branch drift/<slug>, label drift)
+        if: steps.compare.outputs.drifted != '0' && steps.scan.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base_sha=$(git rev-parse HEAD)
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          today=$(date -u +%Y-%m-%d)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh label create drift --color B60205 --description "production differs from main (drift.yml)" 2>/dev/null || true
+          : > .tines/drift/prs.txt
+          # fd 3 carries the list so gh / git inside the loop cannot swallow it by reading stdin
+          while IFS= read -r row <&3; do
+            slug=$(jq -r '.slug' <<<"$row"); sid=$(jq -r '.story_id' <<<"$row"); after=$(jq -r '.after' <<<"$row")
+            stripped=$(jq -r '.webhook_ingress_stripped | join(", ")' <<<"$row")
+            branch="drift/${slug}"
+            existing=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' < /dev/null)
+            # Never overwrite a person's commits on the drift branch (for example a story.meta.yaml mirror).
+            if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+              git fetch --quiet origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+              human=$(git log --format='%ae' "origin/${branch}" "^${base_sha}" | grep -v 'github-actions\[bot\]' | head -n1 || true)
+              if [ -n "$human" ]; then
+                if [ -n "$existing" ]; then
+                  gh pr comment "$existing" --body "Re-checked ${today}: production still differs from \`main\`. The branch carries commits from a person, so it was not overwritten — compare with tonight's run: ${run_url}" < /dev/null >/dev/null
+                fi
+                echo "${slug} ${existing:-(no open PR)} left as is (human commits on ${branch})" >> .tines/drift/prs.txt
+                continue
+              fi
+            fi
+            git switch --quiet -C "$branch" "$base_sha"
+            mkdir -p "stories/${slug}"
+            cp ".tines/drift/${slug}.pr.json" "stories/${slug}/story.json"
+            python3 scripts/diff_story.py "stories/${slug}/story.json" --against "$base_sha" > ".tines/drift/${slug}.diff.md" \
+              || echo "_semantic diff unavailable_" > ".tines/drift/${slug}.diff.md"
+            git add "stories/${slug}/story.json"
+            if git diff --cached --quiet; then
+              echo "::notice::${slug}: production differs only in fields main already carries after normalisation; no PR"
+              git switch --quiet --detach "$base_sha"; continue
+            fi
+            git commit --quiet -m "drift(${slug}): production differs from main (${today})"
+            git push --quiet --force origin "HEAD:refs/heads/${branch}"
+            body=".tines/drift/${slug}.body.md"
+            {
+              echo "<!-- drift.yml: ${slug} -->"
+              echo "## Production differs from \`main\` — \`${slug}\` (story ${sid})"
+              echo
+              echo "\`drift.yml\` exported the production story tonight (${today}) and it no longer equals \`stories/${slug}/story.json\` on \`main\` after \`scripts/normalize.jq\`, allowing for what \`ship.yml\` sets itself. **This PR makes \`main\` equal production.** Nothing in the tenant was changed."
+              echo
+              echo "**Decide, then act** (\`docs/06-rollback-and-recovery.md\` §8):"
+              echo "- **The tenant change is wanted** (fixed in the UI under change control, an approved monitor proposal): merge this PR. If a monitor flag changed, mirror it into \`stories/${slug}/story.meta.yaml\` in this PR."
+              echo "- **It is not wanted:** close this PR and run \`rollback.yml\` with the last good ref of \`main\` — production goes back through a draft and a change request. If the change bypassed change control, check \`policies/break-glass-log.md\`."
+              echo "- **It is a rejected change request** (main ran ahead of production): fix \`main\`, not the tenant (\`/tines-rollback ${slug} previous\`)."
+              echo
+              if [ -n "$stripped" ]; then
+                echo "> **Rebuild before merging:** ingress action(s) ${stripped} exist only in production; their \`path\`/\`secret\` were **not** copied into git (the PR carries \`<assigned-on-import>\`). Rebuild them in the dev team and re-export with \`/tines-export ${slug}\` so dev and \`main\` agree."
+                echo
+              fi
+              cat ".tines/drift/${slug}.audit.md"
+              echo
+              echo "#### What changed (production relative to \`main\`)"
+              echo
+              cat ".tines/drift/${slug}.diff.md"
+              echo
+              echo "_Every action's ingress \`path\`/\`secret\` is per-environment and excluded from the comparison; production values are never committed (this file was scanned with the secret patterns, the ingress-placeholder check and gitleaks before the push). Attribution window starts ${after}. Run: ${run_url}_"
+            } > "$body"
+            if [ -n "$existing" ]; then
+              gh pr edit "$existing" --body-file "$body" < /dev/null >/dev/null
+              gh pr comment "$existing" --body "Re-checked ${today}: production still differs from \`main\` (${run_url})." < /dev/null >/dev/null
+              echo "${slug} #${existing} updated" >> .tines/drift/prs.txt
+            else
+              url=$(gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" --label drift \
+                    --title "drift: ${slug} changed in the tenant" --body-file "$body" < /dev/null)
+              echo "${slug} ${url} opened" >> .tines/drift/prs.txt
+            fi
+            git switch --quiet --detach "$base_sha"
+          done 3< <(jq -c '.[] | select(.status == "drifted" or .status == "missing_in_main")' .tines/drift/results.json)
+          {
+            echo
+            echo "### Drift PRs"
+            echo
+            sed 's/^/- /' .tines/drift/prs.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Note stories that are back in sync while a drift PR is still open
+        if: always() && steps.compare.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r slug <&3; do
+            existing=$(gh pr list --head "drift/${slug}" --state open --json number --jq '.[0].number // empty' < /dev/null || true)
+            if [ -n "$existing" ]; then
+              last=$(gh pr view "$existing" --json comments --jq '.comments[-1].body // ""' < /dev/null || true)
+              case "$last" in "Production equals"*) continue ;; esac   # say it once, not every night
+              gh pr comment "$existing" --body "Production equals \`main\` again ($(date -u +%Y-%m-%d)) — a rollback or a promotion landed. Close this PR unless it is still wanted." < /dev/null >/dev/null || true
+            fi
+          done 3< <(jq -r '.[] | select(.status == "in_sync") | .slug' .tines/drift/results.json)
+
+      - name: Summary to the ops router
+        if: always() && steps.compare.outcome == 'success' && (steps.compare.outputs.drifted != '0' || steps.compare.outputs.failed != '0')
+        run: |
+          set -euo pipefail
+          [ -n "${OPS_ROUTER_URL:-}" ] || exit 0
+          jq --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{source: "drift.yml", event: "drift_detected", env: "prod", run_url: $run,
+              drifted: [.[] | select(.status == "drifted" or .status == "missing_in_main") | {slug, story_id}],
+              failed: [.[] | select(.status == "export_failed" or .status == "compare_failed") | {slug, story_id, status}]}' \
+            .tines/drift/results.json > "$RUNNER_TEMP/notify.json"
+          curl -sS -m 15 -o /dev/null -X POST -H "Content-Type: application/json" --data @"$RUNNER_TEMP/notify.json" "$OPS_ROUTER_URL" \
+            || echo "::warning title=drift::the ops router notification failed"
+
+      - name: Fail the run when a production export could not be read
+        if: steps.compare.outputs.failed != '0'
+        run: |
+          echo "::error title=drift::${{ steps.compare.outputs.failed }} production export(s) failed — the repository cannot vouch for those stories tonight (see the summary)"
+          exit 1
+
+  budget:
+    name: AI credits vs policies/cost-ceilings.yml
+    needs: plan
+    if: github.event.inputs.skip_budget != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod-read
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.read_key_secret] }}
+      TINES_ENV: prod
+      TINES_ALLOW_PROD: "1" # read-only key; the scripts' prod guard
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Read AI usage and compare with the ceilings
+        id: check
+        run: |
+          set -euo pipefail
+          rc=0
+          ./scripts/tines ai-usage --env prod --check-ceilings policies/cost-ceilings.yml \
+            --report-file "$RUNNER_TEMP/budget.md" > "$RUNNER_TEMP/budget.json" || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning title=budget::the AI usage read failed (a Viewer-role key may not read /api/v1/ai_usage — VERIFY #18); no budget verdict tonight"
+            echo "breaches=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/budget.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "breaches=$(jq '.breaches | length' "$RUNNER_TEMP/budget.json")" >> "$GITHUB_OUTPUT"
+          echo "report=$RUNNER_TEMP/budget.md" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the budget issue
+        if: steps.check.outputs.breaches != 'unknown'
+        uses: actions/github-script@v7
+        env:
+          REPORT: ${{ steps.check.outputs.report }}
+          BREACHES: ${{ steps.check.outputs.breaches }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const title = 'budget: AI credits at or above 80 % of a ceiling';
+            const breaches = Number(process.env.BREACHES || '0');
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            try {
+              await github.rest.issues.createLabel({ owner, repo, name: 'budget', color: 'FBCA04', description: 'AI credits at or above 80 % of policies/cost-ceilings.yml (drift.yml)' });
+            } catch (e) { /* exists */ }
+            const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', labels: 'budget', per_page: 100 });
+            const mine = open.find(i => !i.pull_request && i.title === title);
+            if (!breaches) {
+              if (mine) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: mine.number,
+                  body: `Back under every threshold tonight (${runUrl}). Close this issue once the cause is understood.` });
+              }
+              return;
+            }
+            let report = fs.readFileSync(process.env.REPORT, 'utf8');
+            if (report.length > 60000) report = report.slice(0, 60000) + '\n\n_…truncated; see the job summary._\n';
+            const body = `${report}\n---\nWhat to do: 80 % → name the costliest story and agent (above) and decide; 95 % → pause the costliest agent or route it to a custom provider (\`credit_action\`, a person approves); raising a ceiling is a PR to \`policies/cost-ceilings.yml\` **and** the same number in Admin → AI / the \`ops_limits\` Resource. Updated by ${runUrl}.`;
+            if (mine) {
+              await github.rest.issues.update({ owner, repo, issue_number: mine.number, body });
+              await github.rest.issues.createComment({ owner, repo, issue_number: mine.number, body: `${breaches} breach(es) tonight — body updated (${runUrl}).` });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body, labels: ['budget'] });
+            }

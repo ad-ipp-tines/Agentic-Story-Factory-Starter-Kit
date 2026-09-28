@@ -1,0 +1,163 @@
+{
+  "app_id": 0,
+  "dashboard_id": 0,
+  "fields_sdlc_backlog": {
+    "acked_seq": 0,
+    "attempt": 0,
+    "brief": 0,
+    "build_pr": 0,
+    "change_request_id": 0,
+    "credit_estimate_basis": 0,
+    "credit_estimate_monthly": 0,
+    "design_pr": 0,
+    "last_actor": 0,
+    "last_transition_at": 0,
+    "library_seed_id": 0,
+    "live_since": 0,
+    "mode": 0,
+    "open_gate": 0,
+    "outbox_seq": 0,
+    "owner": 0,
+    "pending_base_rev": 0,
+    "pending_repo_sync": 0,
+    "phase": 0,
+    "prod_story_id": 0,
+    "proposal": 0,
+    "provider": 0,
+    "retro": 0,
+    "rev": 0,
+    "specialist_due": 0,
+    "specialist_status": 0,
+    "status": 0,
+    "story_key": 0,
+    "target_date": 0,
+    "tier": 0,
+    "title": 0,
+    "use_case": 0
+  },
+  "fields_sdlc_events": {
+    "actor": 0,
+    "actor_kind": 0,
+    "actor_ref": 0,
+    "agent": 0,
+    "credits_used": 0,
+    "decision": 0,
+    "event_type": 0,
+    "from_phase": 0,
+    "gate": 0,
+    "input_tokens": 0,
+    "model": 0,
+    "output_tokens": 0,
+    "ref": 0,
+    "source_sha": 0,
+    "story_key": 0,
+    "summary": 0,
+    "to_phase": 0,
+    "tracker_rev": 0
+  },
+  "fields_sdlc_milestones": {
+    "criteria": 0,
+    "due_date": 0,
+    "evidence_ref": 0,
+    "milestone_id": 0,
+    "owner": 0,
+    "pending_repo_sync": 0,
+    "rev": 0,
+    "status": 0,
+    "title": 0
+  },
+  "hash_kit_catalog": "",
+  "hash_kit_config": "",
+  "hash_sdlc_limits": "",
+  "hash_sdlc_state_machine": "",
+  "planner_last_run": "",
+  "records_seeded": "<run-guid>",
+  "repo": "<org>/<repo>",
+  "res_kit_catalog": 0,
+  "res_kit_config": 0,
+  "res_kit_tracker_view": 0,
+  "res_ops_limits": 0,
+  "res_ops_lock": 0,
+  "res_ops_responders": 0,
+  "res_ops_routing": 0,
+  "res_sdlc_approvers": 0,
+  "res_sdlc_limits": 0,
+  "res_sdlc_state_machine": 0,
+  "res_sdlc_sync_lock": 0,
+  "rt_sdlc_backlog": 0,
+  "rt_sdlc_events": 0,
+  "rt_sdlc_milestones": 0,
+  "run_guid": "<run-guid>",
+  "self_id": 0,
+  "status": "complete",
+  "step_app": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_bundle": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_config": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_dashboard": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_github": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_probe": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_providers": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_record_types": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_repo": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_report": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_resources": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_seed": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_skills": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  },
+  "step_teams": {
+    "http_status": 200,
+    "message": "",
+    "status": "ok"
+  }
+}

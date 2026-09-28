@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tines": {
+      "type": "http",
+      "url": "https://${TINES_TENANT}.tines.com/mcp"
+    }
+  }
+}

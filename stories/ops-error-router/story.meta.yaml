@@ -1,0 +1,53 @@
+# story.meta.yaml — [OPS] 01 · Route monitoring alerts. Spec: ../../DESIGN.md §3.6, §4.4 step 2.
+# Names only; never a value, never a hostname, never a person.
+
+slug: ops-error-router
+name: "[OPS] 01 · Route monitoring alerts"     # must equal story.json name
+mode: none                                    # a LIVE Webhook intake; no MCP surface. It CALLS the Mode 3 sweep via Send to Story.
+owner_team: OPS                               # the [OPS] prefix; owner role: ops; CODEOWNERS: security-platform
+tier: ops
+change_control: required
+locked_in_prod: true                          # `locked: true` via ./scripts/tines story-update after ship (see _manifest.yaml locked_slugs)
+never_touch: true                             # policies/never-touch.yml name pattern ^\[OPS\]; changed only through its own change request
+
+monitoring:
+  monitor_failures: true                      # story-level "Notify when any action fails"
+  recipients:                                 # NOT `manifest`: the router must never be its own recipient.
+    - "${OPS_EMAIL_DL}"                       # the email DL
+    # - a second Slack channel's incoming webhook, added [BY HAND] in the tenant (or a ${VAR} here, once ship.yml and rollback.yml pass that variable to their jobs).
+    # ship.yml and rollback.yml (set_monitoring.py --from-manifest) add THIS list, not the manifest's, so ${OPS_ROUTER_URL} is never added here.
+  no_events_watchdog: { action: "receive_alert", seconds: 604800 }   # an intake has no interval: 7 days of total silence means the URL fell off the recipients
+
+keep_events_for_days: 30                      # story.json keep_events_for: 2592000 — raised [BY HAND] above the 7-day default
+run_mode: LIVE                                # monitoring notifications come only from LIVE stories; the router is LIVE in dev too
+
+credentials:                                  # names only; must exist in the dev team and the prod team (the manifest's dev and prod environments)
+  - tines_api_readonly                        # Text; Viewer-role TEAM key (read-only by role — VERIFY #18); allowed_hosts = the tenant host; Workbench access off. Used by: enrich_logs
+  - slack_bot                                 # the Slack bot token as a credential; allowed_hosts = the Slack API host; used by post_thread_root, post_reply, post_change_control
+resources:                                    # JSON Resources; shapes in ../ops-story-health-monitor/resources/*.example.json; values set in the tenant
+  - ops_routing                               # channel or email DL per story id (set after first ship) and default; _approvals.channel for change-control notices
+  - ops_limits                                # only error_threshold_per_window is read here; ops_limits.enabled is deliberately NOT read (the kill switch stops the sweep, never the intake)
+records:                                      # Record types by name; fields in ../ops-story-health-monitor/records/record-types.md; creation [BY HAND] (VERIFY #26)
+  - ops_alerts                                # also the dedupe store (alert_id = <story_id>-<action_id>-<15-minute bucket>)
+  - ops_dead_letter                           # payload_ref only, never the body
+
+ai:
+  agents: []                                  # no AI Agent action; no credits; no model in the loop — routing is a fixed rule table
+
+schedule_interval_seconds: 0                  # event-driven
+
+entries:                                      # one Webhook, five kinds of sender (shapes: samples/; only the CI one is known)
+  - { kind: webhook, action: receive_alert, senders: [story_monitoring, ai_credit_alert, event_limit_alert, change_control_webhook, ship_story_py] }
+
+send_to_story:
+  enabled: false                              # the router is an intake, not a sub-story; it is never a tool on any agent or server
+  calls:
+    - { action: forward_to_sweep, story: "[OPS] 10 · Monitor story health and credits", slug: ops-story-health-monitor, timeout_seconds: 30 }
+  library_seed: 1231438                       # Monitor action failures in Tines and notify via Slack — imported into 90 Seeds for reference only (VERIFY #23)
+
+samples:
+  - samples/monitoring-payload.sample.json    # PLACEHOLDER shape until captured by a deliberate LIVE failure (VERIFY #9)
+
+flows_note: "One flow. No AI credits. API calls: one level-4 log read per NEW action-failure alert (never per repeat), Records reads/writes, one Slack or email delivery per story + action + 15-minute window."
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export; never typed

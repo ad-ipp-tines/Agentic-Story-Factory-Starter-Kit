@@ -1,0 +1,110 @@
+# policies/cost-ceilings.yml — the single source of budgets.
+#
+# Read by:  drift.yml (job `budget`, via `./scripts/tines ai-usage --group_by team|story`)
+#           lint.yml  (every AI Agent action in an export must have a line under `agents`)
+#           the sweep story (mirrored BY HAND into the `ops_limits` Resource — keep the two equal)
+#
+# Units:    credits = Tines AI credits (one credit = $0.01 on Tines-provided models; a custom provider
+#           bypasses credits but still bills externally as `billed_cost`).
+#           tokens  = the AI Agent action's Status-tab token-usage alert (Daily window).
+#
+# What has NO API and is set by hand in the tenant (mirror the numbers here so they can be diffed):
+#   - per-team AI credit allocation (Admin -> AI)
+#   - AI credit usage alert thresholds (tenant / unallocated / per team; defaults fire at 80% and 100% - VERIFY)
+#   - AI Agent action token-usage alerts (Status tab: Notify, Disable action)
+#
+# 80% is the actionable alert; at 100% the platform stops the story.
+
+version: 1
+
+tenant:
+  monthly_credit_budget: 0          # mirror of Admin -> AI; 0 until the account's allocation is known
+  alert_pct: [80, 100]              # tenant AI credit usage alerts; set by hand (no API); defaults VERIFY
+
+teams:                              # per-team allocation, mirrored from Admin -> AI (no API)
+  # scripts/ai_usage.py matches an entry by its team_id first, then by a manifest environment of the
+  # same name, then by team name. The ops trio has no team of its own — it lives in the manifest's dev and
+  # prod teams (DESIGN.md §5.1) — so `ops` is matched by team_id only. 0 = not set yet (placeholder).
+  ops:
+    team_id: 0                      # the team the ops trio's agents run in: stories/_manifest.yaml environments.prod.team_id
+    monthly_credits: 300
+  dev:
+    team_id: 0                      # stories/_manifest.yaml environments.dev.team_id (also matched by the name `dev`)
+    monthly_credits: 500
+
+agents:                             # one line per AI Agent action in the repo; key = <slug>/<action name>
+  ops-story-health-monitor/triage:
+    daily_tokens_notify: 150000     # Status tab -> Notify (story recipients)
+    daily_tokens_disable: 300000    # Status tab -> Disable action
+    credits_per_run_max: 3          # Trigger in the story; mirrored in ops_limits.agent_credits_per_run_max
+    runs_per_day_max: 96            # Trigger in the story (Records count); mirrored in ops_limits.agent_runs_per_day_max
+    model: smart                    # Task mode with tools -> the tenant's smart model
+    provider: tenant-default        # tenant-default | custom:<name>  (a custom provider bills externally)
+  ops-story-health-monitor/critic:
+    daily_tokens_notify: 50000
+    daily_tokens_disable: 100000
+    model: fast                     # tool-less Task mode -> the fast model, cheap by construction
+    provider: tenant-default
+
+  # [KIT] 00 · Run the story factory (stories/kit-factory/; REPO-DESIGN.md §3.3 row 10, §7.3, §7.6, §8.2, §12).
+  # Five AI Agent actions, all tool-less except llm_tool_probe's one probe tool. The token numbers are starting values
+  # for the Status-tab alerts (set by hand; mirrored in stories/kit-factory/story.meta.yaml ai.agents[].token_alert):
+  # tune them from the dev copy's observed tokens before go-live. runs_per_day_max and credits_per_run_max of the
+  # three runtime specialists are mirrored into the sdlc_limits Resource by ./scripts/kit bundle and kit-sync.yml
+  # (sdlc_limits.runtime.<agent>), where section D's Triggers enforce them before any model call (D2). The two probes
+  # run only during provisioning (section F), so their caps are enforced by these lines and the token alerts.
+  # `provider` is filled by ./scripts/kit apply-config from kit/tenant/config.yaml (tenant-default | custom:<name>);
+  # on a custom or local provider the credits are 0 and the bill is billed_cost (AGENTS.md §8).
+  kit-factory/planner:
+    daily_tokens_notify: 60000      # Status tab -> Notify (≈ 4 runs × a backlog snapshot, with headroom)
+    daily_tokens_disable: 120000    # Status tab -> Disable action
+    credits_per_run_max: 2          # sdlc_limits.runtime.planner.credits_per_run_max
+    runs_per_day_max: 4             # sdlc_limits.runtime.planner.runs_per_day_max (D2 under_cap)
+    model: fast                     # PINNED on the action: its skill is an agentic capability, unpinned it would run on smart
+    provider: tenant-default
+  kit-factory/brief_writer:
+    daily_tokens_notify: 100000     # ≈ 20 intake briefs a day, with headroom
+    daily_tokens_disable: 200000
+    credits_per_run_max: 2          # sdlc_limits.runtime.brief_writer.credits_per_run_max
+    runs_per_day_max: 20            # sdlc_limits.runtime.brief_writer.runs_per_day_max
+    model: fast                     # PINNED on the action (skill story-brief-writing)
+    provider: tenant-default
+  kit-factory/retro_writer:
+    daily_tokens_notify: 75000      # ≈ 5 retros a day over ops evidence, with headroom
+    daily_tokens_disable: 150000
+    credits_per_run_max: 3          # sdlc_limits.runtime.retro_writer.credits_per_run_max
+    runs_per_day_max: 5             # sdlc_limits.runtime.retro_writer.runs_per_day_max
+    model: fast                     # PINNED on the action (skill story-retrospective)
+    provider: tenant-default
+  kit-factory/llm_probe:
+    daily_tokens_notify: 5000       # one short call per provisioning run
+    daily_tokens_disable: 10000
+    credits_per_run_max: 1
+    runs_per_day_max: 5             # REPO-DESIGN.md §7.3
+    model: fast                     # NOT pinned: tool-less, so it runs on the tenant's fast default — which is what it checks
+    provider: tenant-default
+  kit-factory/llm_tool_probe:
+    daily_tokens_notify: 10000      # one call with one tool round trip per provisioning run
+    daily_tokens_disable: 20000
+    credits_per_run_max: 2
+    runs_per_day_max: 5             # REPO-DESIGN.md §7.3
+    model: smart                    # NOT pinned: its one tool moves it to the tenant's smart default — which is what it checks
+    provider: tenant-default
+
+ci:                                 # headless Claude Code runs (claude-code-action) — no MCP, no tenant
+  review_max_turns: 10
+  review_timeout_min: 15
+  propose_fix_max_turns: 15
+  propose_fix_timeout_min: 20
+  headless_concurrency: 1
+
+runtime:                            # mirrored into the ops_limits Resource (stories/ops-story-health-monitor/resources/ops_limits.example.json)
+  sweep_minutes: 15
+  credit_budget_daily_default: 200  # per-story default; per-story overrides live in ops_limits.credit_budget_daily.per_story
+  credit_alert_pct: [80, 95]        # 80 = summarise by team/story; 95 = propose pausing the costliest agent
+  max_proposals_per_day: 5          # caps repository_dispatch -> propose-fix.yml
+
+rules:
+  new_ai_agent_action_requires_budget_line: true    # lint.yml fails a PR that adds an AI Agent action without a line under `agents`
+  token_alert_required_in_meta: true                # the reviewer refuses a story whose story.meta.yaml lacks ai.agents[].token_alert
+  provider_must_be_declared: true                   # so credits and billed_cost are never confused

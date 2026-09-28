@@ -1,0 +1,52 @@
+{
+  "chat_surface": "email",
+  "company_name": "<your-company>",
+  "credentials": {
+    "github": "github_factory",
+    "tines_api": "tines_api_kit",
+    "tines_readonly": "tines_api_readonly"
+  },
+  "entitlements": {
+    "ai_agent_action": true,
+    "apps": false,
+    "cases": false,
+    "change_control": true,
+    "pages": true,
+    "records": true,
+    "tunnel": false
+  },
+  "environment": "prod",
+  "github": {
+    "org": "<org>",
+    "repo": "tines-story-factory",
+    "template_repo": "<template-owner>/<template-repo>"
+  },
+  "kit_run": "<run-guid>",
+  "llm": {
+    "choice": "tines_provided",
+    "model_display_name": "",
+    "provider_name": ""
+  },
+  "plan": {
+    "licensed_teams": 2,
+    "self_hosted": false,
+    "tier": "business"
+  },
+  "provisioned_at": "YYYY-MM-DDTHH:MM:SSZ",
+  "records_tier": "essentials",
+  "rt_ops_alerts": 0,
+  "rt_ops_findings": 0,
+  "schema_version": 1,
+  "slack_credential_name": "",
+  "teams": {
+    "dev": {
+      "id": 0,
+      "name": "<dev team name>"
+    },
+    "prod": {
+      "id": 0,
+      "name": "<prod team name>"
+    }
+  },
+  "tenant_host": "<your-tenant>.tines.com"
+}

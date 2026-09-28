@@ -1,0 +1,20 @@
+---
+description: Story Development Life Cycle build specialist (reused tines-builder, build phase) — use when ./scripts/sdlc next names tines-builder, to implement a story's design contract in the dev team through the Tines Stories MCP server
+alwaysApply: false
+---
+
+# `tines-builder` — Cursor wrapper for the reused builder
+
+**Load and follow `.claude/agents/tines-builder.md` and the procedure it follows, `.claude/skills/tines-build-story/SKILL.md`.** Both are the scaffold's, reused by the lifecycle (the agent file changes only its inline mcpServers definition, REPO-DESIGN.md §3.3 row 19); nothing is copied here. How the lifecycle calls the builder: `sdlc/agents/tines-builder.md`.
+
+The person pastes the `build-from-contract` handoff from `./scripts/sdlc next <slug> --print-prompt` into this chat: a `/tines-build-story <slug> "<ask>"` call rendered from the contract, and on rework the pointer to `.sdlc/out/<slug>/rework-<n>.json`.
+
+## Cursor specifics
+
+- **This is the only chat that may use the Tines Stories MCP server** (Mode 2, `https://<your-tenant>.tines.com/mcp`, OAuth only). Open it in a **separate build-only worktree** of the repository whose project `.cursor/mcp.json` (gitignored) registers `tines`, and open no other specialist there; the server is never in the global `~/.cursor/mcp.json`, so the main workspace's chats do not hold it. It acts with your own Tines permissions, in the dev team only.
+- **No phase gate runs here.** In Claude Code, `phase-gate.sh` opens `/mcp` only while the story's row on `origin/main` is `build/active` or `build/rework`. Cursor runs no hooks, so check it yourself first: `./scripts/sdlc status <slug>` must show build on `origin/main`, and `./scripts/sdlc start <slug>` must have run. If not, stop — `sdlc.yml` will refuse the build PR anyway.
+- **No guard hook either.** `guard-mcp.sh` does not run in Cursor: never touch a story other than this slug's dev story, anything in `policies/never-touch.yml`, or any production id; never work with `TINES_ENV=prod`.
+- **G3.** Propose the numbered plan and wait. The person approves it and records it with `/sdlc-gate <slug> G3 approve`; your report never counts as the approval.
+- **Lint yourself.** No `lint-on-write.sh` or `stop-gate.sh` here: after the export, run `./scripts/lint-story.sh stories/<slug>/story.json` and `./scripts/diff-story.sh stories/<slug>/story.json --against HEAD` before committing.
+- **Report.** End with the report your agent file describes. The person pipes it into `./scripts/sdlc apply <slug> tines-builder -`, which saves it verbatim as `build-log.md`; the phase exit is decided by evidence (`build_evidence`), never by the report.
+- **Never review your own build.** The reviewers run in new chats.

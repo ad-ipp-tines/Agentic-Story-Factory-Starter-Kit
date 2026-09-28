@@ -1,0 +1,15 @@
+{
+  "event": "action_failed",
+  "story": {
+    "id": 0,
+    "name": "[SEC] 01 · Enrich IP (sub)"
+  },
+  "action": {
+    "id": 0,
+    "name": "lookup_virustotal",
+    "type": "Agents::HTTPRequestAgent"
+  },
+  "status": 503,
+  "message": "HTTP 503 from upstream after final retry",
+  "occurred_at": "2026-09-24T17:00:00Z"
+}

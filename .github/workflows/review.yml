@@ -1,0 +1,366 @@
+# .github/workflows/review.yml — an independent Claude Code instance reviews the change (DESIGN.md §3.4).
+#
+# OPTIONAL. The whole workflow is off until ANTHROPIC_API_KEY exists as a secret of the GitHub ENVIRONMENT
+# `review` (never a repository secret, which any workflow a PR edits could read); both jobs name that environment,
+# and with the secret absent the `gate` job reports "skipped" and nothing else runs. It never holds an MCP server,
+# a Tines credential or a tenant hostname: the reviewer judges only the diff, the exports and the meta files, with a
+# read-only tool list (--allowedTools, and --disallowedTools for jq, env, printenv and git diff: the first three can
+# print the environment, which holds ANTHROPIC_API_KEY and the github token, and `git diff --output` writes files),
+# a turn cap (--max-turns) and a job timeout. The comment is secret-scanned (tines_common.SECRET_PATTERNS) before
+# it is posted. The generator never reviews its own work — this is a fresh instance with a different prompt from
+# the one that built the story.
+#
+# The PR checkout is DATA ONLY. Everything that shapes or runs inside the review — .claude/ (settings,
+# hooks, the tines-reviewer agent, the /tines-review skill, findings-schema.json), scripts/ (lint-story.sh,
+# diff-story.sh, requirements.txt) and the turn cap in policies/cost-ceilings.yml — is taken from the BASE
+# branch, so a pull request cannot rewrite its own reviewer, hooks or scripts and have them run here with
+# ANTHROPIC_API_KEY in the environment. The PR's own changes to those paths are reviewed as a git diff, which the
+# workflow (not the model) writes to .review-scope/pr-config.diff, beside the changed-path list.
+#
+# Findings are posted as one PR comment. The check FAILS CLOSED: it passes only on `verdict: pass` from a
+# claude step that succeeded. An errored, timed-out or unparsed run (for example prose steered by text in an
+# export under review) fails the check. The only fail-open case is the gate job reporting the review disabled.
+# lint.yml (no model) is the first gate, so obvious failures never reach the model.
+#
+# VERIFY (docs/VERIFY.md #21): the exact inputs of anthropics/claude-code-action@v1 (including whether it
+# needs `id-token: write` when `github_token` is passed), its output names (`execution_file`), the
+# `--json-schema` argument form, and whether repository skills and subagents load with
+# `--setting-sources project` on the action's Claude Code version. The parsing step below tolerates all of
+# those being slightly different: it falls back to a fenced JSON block in the final result.
+
+name: review
+
+# Triggers (REPO-DESIGN.md §3.3 row 18): no `pull_request` trigger of its own. sdlc.yml — the one required check, with
+# no paths filter, on the same event types (opened, synchronize, reopened, ready_for_review) — calls this workflow
+# (workflow_call) when the PR's changes match the path list below, the one the `pull_request` trigger carried,
+# unchanged. sdlc.yml reads it from between the two markers, so keep it here. Both jobs name the environment
+# `review`, so its ANTHROPIC_API_KEY is the one used (an environment secret wins over one the caller passes); without
+# it the `gate` job reports the review off, exactly as before.
+# sdlc-call-paths begin
+#   - "stories/**"
+#   - "tines-skills/**"
+#   - "policies/**"
+#   - ".claude/skills/**"
+# sdlc-call-paths end
+on:
+  workflow_call:
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+
+# No `id-token: write`: the review posts its own comment with GITHUB_TOKEN (below) and needs no OIDC token.
+# If the action refuses to start without it, restore it at the `review` job level only (VERIFY #21).
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+concurrency:
+  group: review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: is the review enabled
+    # Fork PRs receive no secrets; draft PRs are not reviewed yet.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: review # ANTHROPIC_API_KEY is an environment secret, never a repository secret
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check out the BASE branch (a PR cannot switch its own review off by deleting the skill)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.base_ref }}
+          persist-credentials: false
+      - name: Secret present and the review skill committed?
+        id: check
+        env:
+          # `secrets` is not usable in a job-level `if`, so the presence test happens here.
+          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          set -euo pipefail
+          enabled=true
+          if [ "$HAS_KEY" != "true" ]; then
+            enabled=false
+            echo "::notice title=review::ANTHROPIC_API_KEY is not set in the environment 'review' — the headless review is optional and stays off"
+          fi
+          if [ ! -f .claude/skills/tines-review/SKILL.md ]; then
+            enabled=false
+            echo "::notice title=review::.claude/skills/tines-review/SKILL.md is missing on the base branch — nothing to run"
+          fi
+          if [ ! -f .claude/agents/tines-reviewer.md ]; then
+            enabled=false
+            echo "::notice title=review::.claude/agents/tines-reviewer.md is missing on the base branch — nothing to run"
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+
+  review:
+    name: independent review (/tines-review)
+    needs: gate
+    if: needs.gate.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # policies/cost-ceilings.yml ci.review_timeout_min
+    environment: review # the only place ANTHROPIC_API_KEY lives
+    steps:
+      - name: Check out the pull request (DATA ONLY — full history for `git diff origin/<base>...HEAD`)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check out the base branch (the review CONFIGURATION)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.base_ref }}
+          path: .review-base
+          persist-credentials: false
+
+      - name: Replace the PR's .claude/ and scripts/ with the base branch's (the PR's versions stay reviewable as a git diff)
+        run: |
+          set -euo pipefail
+          rm -rf .claude scripts
+          cp -R .review-base/.claude .claude
+          cp -R .review-base/scripts scripts
+          mkdir -p "${RUNNER_TEMP}/review-config"
+          cp .review-base/policies/cost-ceilings.yml "${RUNNER_TEMP}/review-config/cost-ceilings.yml"
+          rm -rf .review-base
+
+      - name: Set up Python (lint-story.sh and diff-story.sh are Python underneath)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install script dependencies (the base branch's requirements.txt, never the PR's)
+        run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Fetch the base branch so the skill can diff against it, then drop the checkout credential
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          # the model's tools can read files; the persisted GITHUB_TOKEN header must not be one of them
+          git config --local --unset-all "http.https://github.com/.extraheader" || true
+
+      - name: List the changed paths for the reviewer (it has no git diff tool; the workflow writes them, not the model)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p .review-scope
+          git diff --name-only "origin/${BASE_REF}...HEAD" -- stories tines-skills policies .claude/skills > .review-scope/changed-paths.txt
+          # the PR's own .claude/ and scripts/ were replaced by the base branch's above; their diff stays reviewable here
+          git diff "origin/${BASE_REF}...HEAD" -- .claude scripts > .review-scope/pr-config.diff
+          echo "changed paths: $(wc -l < .review-scope/changed-paths.txt)"
+
+      - name: Build the headless arguments (turn cap from the base branch's policies/cost-ceilings.yml; schema inlined if present)
+        id: args
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          import yaml
+
+          ceilings_path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "review-config" / "cost-ceilings.yml"
+          ceilings = yaml.safe_load(ceilings_path.read_text(encoding="utf-8")) or {}
+          max_turns = int(((ceilings.get("ci") or {}).get("review_max_turns")) or 10)
+
+          allowed = ",".join([
+              "Read", "Glob", "Grep",
+              "Bash(git log *)",
+              "Bash(./scripts/lint-story.sh *)", "Bash(./scripts/diff-story.sh *)",
+          ])
+          # jq, env and printenv can print this process's environment (ANTHROPIC_API_KEY, the github token) into the
+          # findings, which are posted as a PR comment; `git diff --output=<file>` writes files. The changed paths and
+          # the PR's config diff are in .review-scope/, written by the step above.
+          disallowed = ",".join(["Bash(jq *)", "Bash(env*)", "Bash(printenv*)", "Bash(git diff *)"])
+          args = [
+              f"--max-turns {max_turns}",
+              f'--allowedTools "{allowed}"',
+              f'--disallowedTools "{disallowed}"',
+              # project scope = the BASE branch's .claude/ copied in above (skills, agent, permission rules,
+              # hooks); no user scope, no local; nothing from the PR's own .claude/ is loaded
+              "--setting-sources project",
+              "--output-format json",
+          ]
+          schema = pathlib.Path(".claude/skills/tines-review/references/findings-schema.json")  # base branch copy
+          if schema.exists():
+              compact = json.dumps(json.loads(schema.read_text(encoding="utf-8")), separators=(",", ":"))
+              args.append("--json-schema '" + compact.replace("'", "'\\''") + "'")   # inline form; the @file form is VERIFY
+          else:
+              print("::notice title=review::findings-schema.json not found; the skill's fenced JSON output is parsed instead")
+          line = " ".join(args)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write("claude_args<<EOF\n" + line + "\nEOF\n")
+          print("claude_args:", line[:200] + ("…" if len(line) > 200 else ""))
+          PY
+
+      - name: Independent review — no MCP, no tenant credentials
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }} # input name VERIFY #21; replaces the OIDC exchange
+          prompt: "/tines-review ${{ github.event.pull_request.number }}"
+          claude_args: ${{ steps.args.outputs.claude_args }}
+          allowed_bots: "" # bots cannot trigger loops
+
+      - name: Parse the findings
+        id: findings
+        if: always() && steps.claude.outcome != 'skipped'
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re
+
+          path = os.environ.get("EXECUTION_FILE") or ""
+          outcome = os.environ.get("CLAUDE_OUTCOME") or "unknown"
+          marker = "<!-- tines-review: findings -->"
+
+          def load_messages(p):
+              text = pathlib.Path(p).read_text(encoding="utf-8")
+              try:
+                  data = json.loads(text)
+                  return data if isinstance(data, list) else [data]
+              except json.JSONDecodeError:
+                  out = []
+                  for line in text.splitlines():
+                      line = line.strip()
+                      if line.startswith("{"):
+                          try:
+                              out.append(json.loads(line))
+                          except json.JSONDecodeError:
+                              pass
+                  return out
+
+          def extract(messages):
+              result = next((m for m in reversed(messages) if isinstance(m, dict) and m.get("type") == "result"), None)
+              candidates = []
+              if result:
+                  so = result.get("structured_output")
+                  if isinstance(so, dict):
+                      return so
+                  candidates.append(str(result.get("result") or ""))
+              for m in reversed(messages):
+                  if isinstance(m, dict) and m.get("type") == "assistant":
+                      content = (m.get("message") or {}).get("content") or []
+                      for part in content if isinstance(content, list) else []:
+                          if isinstance(part, dict) and part.get("type") == "text":
+                              candidates.append(str(part.get("text") or ""))
+                      break
+              for text in candidates:
+                  m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.S)
+                  if m:
+                      try:
+                          return json.loads(m.group(1))
+                      except json.JSONDecodeError:
+                          pass
+                  try:
+                      parsed = json.loads(text)
+                      if isinstance(parsed, dict):
+                          return parsed
+                  except json.JSONDecodeError:
+                      pass
+              return None
+
+          findings = None
+          if path and pathlib.Path(path).exists():
+              findings = extract(load_messages(path))
+
+          if not isinstance(findings, dict) or "verdict" not in findings:
+              verdict = "unknown"
+              body = (f"{marker}\n## Independent review\n\nThe headless review ran (outcome: `{outcome}`) but produced no "
+                      "machine-readable findings, so the check FAILS (it fails closed). See the job log and re-run. "
+                      "(VERIFY docs/VERIFY.md #21: action output names and the `--json-schema` form.)\n")
+          else:
+              verdict = str(findings.get("verdict") or "unknown")
+              rows = findings.get("findings") or []
+              order = {"blocker": 0, "major": 1, "minor": 2, "info": 3}
+              rows = sorted((r for r in rows if isinstance(r, dict)), key=lambda r: order.get(str(r.get("severity")), 9))
+              lines = [marker, "## Independent review (`/tines-review`, fresh context, no tenant access)", "",
+                       f"**Verdict: `{verdict}`** · {len(rows)} finding(s)", ""]
+              if rows:
+                  lines += ["| severity | path | rule | finding | suggested fix |", "|---|---|---|---|---|"]
+                  for r in rows:
+                      fix = r.get("suggested_fix") or ""
+                      if r.get("suggested_prompt"):
+                          fix = (fix + " " if fix else "") + f"`/tines-build-story` prompt: {r['suggested_prompt']}"
+                      cell = lambda v: str(v or "").replace("|", "\\|").replace("\n", " ")
+                      lines.append(f"| {cell(r.get('severity'))} | `{cell(r.get('path'))}` | `{cell(r.get('rule'))}` | {cell(r.get('message'))} | {cell(fix)} |")
+              if findings.get("cost_notes"):
+                  lines += ["", f"**Cost notes:** {findings['cost_notes']}"]
+              lines += ["", "_Blockers must be fixed with another `/tines-build-story` pass and a fresh export — never by editing `story.json`._"]
+              body = "\n".join(lines) + "\n"
+
+          # Secret scan before anything is posted: the model ran with ANTHROPIC_API_KEY and the github token in its
+          # environment and read attacker-influenceable exports. tines_common is the BASE branch's copy (scripts/ was
+          # replaced above). Without the patterns nothing model-written is posted and the check fails closed.
+          import sys
+          sys.path.insert(0, "scripts")
+          try:
+              from tines_common import SECRET_PATTERNS
+          except Exception as exc:  # noqa: BLE001
+              SECRET_PATTERNS = None
+              print(f"::error title=review::tines_common.SECRET_PATTERNS could not be loaded ({exc.__class__.__name__}); the comment is withheld")
+          if SECRET_PATTERNS is None:
+              verdict = "unknown"
+              body = (f"{marker}\n## Independent review\n\nThe findings could not be secret-scanned, so they are withheld and "
+                      "the check FAILS (it fails closed). See the job log.\n")
+          else:
+              redacted = sorted({name for name, pattern in SECRET_PATTERNS if pattern.search(body)})
+              for name, pattern in SECRET_PATTERNS:
+                  body = pattern.sub(f"[redacted: {name}]", body)
+              if redacted:
+                  print(f"::warning title=review::secret-looking text was redacted from the findings before posting ({', '.join(redacted)})")
+
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "review-comment.md"
+          out.write_text(body, encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"verdict={verdict}\n")
+              fh.write(f"comment={out}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(body)
+          print("verdict:", verdict)
+          PY
+
+      - name: Post the findings as a PR comment
+        if: always() && steps.findings.outputs.comment != ''
+        uses: actions/github-script@v7
+        env:
+          COMMENT_PATH: ${{ steps.findings.outputs.comment }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- tines-review: findings -->';
+            let body = fs.readFileSync(process.env.COMMENT_PATH, 'utf8');
+            if (body.length > 60000) body = body.slice(0, 60000) + '\n\n_…truncated; see the job summary._\n';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const mine = comments.find(c => c.body && c.body.startsWith(marker));
+            if (mine) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail the check unless the verdict is exactly `pass` (fail closed)
+        if: always()
+        env:
+          VERDICT: ${{ steps.findings.outputs.verdict }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+        run: |
+          if [ "$CLAUDE_OUTCOME" != "success" ]; then
+            echo "::error title=review::the headless review did not complete (outcome: ${CLAUDE_OUTCOME:-unknown}); the check fails closed — re-run it"
+            exit 1
+          fi
+          case "$VERDICT" in
+            pass)              echo "review: pass" ;;
+            changes_requested) echo "::error title=review::the independent reviewer requested changes — see the PR comment"; exit 1 ;;
+            *)                 echo "::error title=review::no verdict parsed (got '${VERDICT:-none}'); the check fails closed on an unparsed run"; exit 1 ;;
+          esac

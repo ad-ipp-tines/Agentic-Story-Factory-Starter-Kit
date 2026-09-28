@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./.env)", "Read(./.env.*)", "Read(./.mcp.json)", "Read(./.cursor/mcp.json)",
+      "Read(~/.ssh/**)", "Read(~/.aws/**)", "Read(~/.config/**)", "Read(~/.gnupg/**)", "Read(~/.docker/**)",
+      "Read(~/.kube/**)", "Read(~/.cursor/**)", "Read(~/.claude.json)", "Read(~/.netrc)", "Read(~/.git-credentials)",
+      "Bash(rm -rf *)", "Bash(git push --force *)", "Bash(git push -f *)",
+      "Bash(./scripts/tines cr-promote *)", "Bash(terraform apply *)",
+      "Bash(./scripts/promote_change_request.py *)", "Bash(python3 scripts/promote_change_request.py *)",
+      "Bash(python scripts/promote_change_request.py *)", "Bash(BREAK_GLASS=1 *)",
+      "Bash(*cr-promote*)", "Bash(*promote_change_request*)", "Bash(*BREAK_GLASS*)", "Bash(terraform *apply*)",
+      "Write(./.sdlc/**)", "Edit(./.sdlc/**)",
+      "Write(./kit/tracker/**)", "Edit(./kit/tracker/**)",
+      "Write(./sdlc/work/**)", "Edit(./sdlc/work/**)",
+      "Write(./.claude/**)", "Edit(./.claude/**)",
+      "Write(./policies/**)", "Edit(./policies/**)"
+    ],
+    "ask": [
+      "Bash(git push *)", "Bash(gh pr create *)", "Bash(curl *)",
+      "Bash(jq *)", "Bash(yq *)", "Bash(git diff *)",
+      "Bash(git add *)", "Bash(git commit *)",
+      "Bash(./scripts/tines export *)",
+      "Bash(./scripts/tines ship *)",
+      "Bash(./scripts/tines import-draft *)", "Bash(./scripts/tines cr-open *)",
+      "Bash(./scripts/tines version-create *)", "Bash(./scripts/tines recipients-add *)",
+      "Bash(./scripts/tines recipients-remove *)", "Bash(./scripts/tines story-update *)",
+      "Bash(./scripts/tines action-update *)", "Bash(./scripts/tines story-disable *)",
+      "Bash(./scripts/tines skills-push *)", "Bash(./scripts/tines resource-cas *)",
+      "Bash(./scripts/sdlc start *)", "Bash(./scripts/sdlc intake *)", "Bash(./scripts/sdlc apply *)",
+      "Bash(./scripts/sdlc advance *)", "Bash(./scripts/sdlc eval-run *)", "Bash(./scripts/sdlc gate *)",
+      "Bash(./scripts/kit bundle *)", "Bash(./scripts/kit apply-config *)", "Bash(./scripts/kit tracker-fold *)",
+      "Bash(./scripts/kit tracker-json --push *)", "Bash(./scripts/kit tracker-json --out *)", "Bash(./scripts/kit tracker-json --full *)"
+    ],
+    "allow": [
+      "Read(./**)", "Glob", "Grep",
+      "Bash(./scripts/tines live-activity *)",
+      "Bash(./scripts/tines action-logs *)", "Bash(./scripts/tines runs *)",
+      "Bash(./scripts/tines ai-usage *)", "Bash(./scripts/tines cr-view *)",
+      "Bash(./scripts/tines versions-list *)", "Bash(./scripts/tines audit *)",
+      "Bash(./scripts/lint-story.sh *)", "Bash(./scripts/diff-story.sh *)",
+      "Bash(git status *)", "Bash(git log *)", "Bash(git show *)",
+      "Bash(git checkout -b *)",
+      "mcp__tines__*",
+      "Bash(./scripts/sdlc status *)", "Bash(./scripts/sdlc next *)", "Bash(./scripts/sdlc ready *)",
+      "Bash(./scripts/sdlc check *)", "Bash(./scripts/sdlc estimate *)",
+      "Bash(./scripts/kit tracker-json --check)",
+      "Bash(gh pr list *)", "Bash(gh pr view *)",
+      "WebFetch(domain:www.tines.com)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "mcp__tines__.*", "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-mcp.sh\" || exit 2", "timeout": 10 },
+          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/phase-gate.sh\" || exit 2", "timeout": 10 },
+          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-secrets.sh\" || exit 2", "timeout": 10 }
+      ] },
+      { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash", "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-secrets.sh\"", "timeout": 10 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Write|Edit",      "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-on-write.sh\"", "timeout": 60 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-gate.sh\"", "timeout": 60 } ] }
+    ]
+  }
+}

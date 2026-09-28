@@ -1,0 +1,71 @@
+# story.meta.yaml — [OPS] 20 · Ops tools (MCP server). Spec: ../../DESIGN.md §3.6, §4.4 step 8, §5.9.
+# Names only; never a value, never a hostname, never a person, never an API key.
+
+slug: ops-tools-server
+name: "[OPS] 20 · Ops tools (MCP server)"      # must equal story.json name
+mode: mode-4-server                           # one MCP server action at https://<your-tenant>.tines.com/mcp/<mcp-path>
+owner_team: OPS                               # the [OPS] prefix; owner role: ops; CODEOWNERS: security-platform
+tier: ops
+change_control: required
+locked_in_prod: true                          # `locked: true` via ./scripts/tines story-update after ship (see _manifest.yaml locked_slugs)
+never_touch: true                             # policies/never-touch.yml name pattern ^\[OPS\]; changed only through its own change request
+
+monitoring:
+  monitor_failures: true                      # story-level "Notify when any action fails"
+  recipients:                                 # NOT `manifest`: the three ops-* stories are monitored by the DL and a second channel.
+    - "${OPS_EMAIL_DL}"                       # the email DL
+    # - a second Slack channel's incoming webhook, added [BY HAND] in the tenant.
+    # ship.yml and rollback.yml (set_monitoring.py --from-manifest) add THIS list, not the manifest's, so the router is never added here.
+  no_events_watchdog: { action: "ops_tools", seconds: 604800 }   # whether the MCP server action carries the no-events monitor is VERIFY E9 (docs/VERIFY.md);
+                                                                 # the primary health signal is the sweep's mcp_health (no `initialize` events over a window; tools near 30 s)
+
+keep_events_for_days: 30                      # story.json keep_events_for: 2592000; the MCP server action's own event retention is VERIFY #25
+run_mode: LIVE
+
+credentials: []                               # the server holds NONE. Each tool's credential lives in its sub-story (tines_api_readonly in [OPS] 11–15;
+                                              # slack_bot in [OPS] 17). The MCP client never receives the tools' credentials.
+resources: []                                 # ops_responders, ops_routing and ops_limits are read inside [OPS] 17, not here
+records: []                                   # ops_alert_proposals is written inside [OPS] 17 (requester = META.headers.email), not here
+
+mcp_server:
+  action: ops_tools                           # template picker label "MCP Server"; export type VERIFY #8
+  url: "https://<your-tenant>.tines.com/mcp/<mcp-path>"   # the real path comes from the prod action's Summary tab; never committed
+  transport: streamable_http                  # the only transport the MCP server action supports; stdio-only clients use the mcp-remote proxy
+  access_control: tines_api_key               # "With a Tines API Key"; OAuth as an access mode is a docs CONFLICT — VERIFY #25, not relied on
+  access_scope: { members_of_teams: [ops] }   # members of the ops team only; never "Anyone with the path" or "Anyone with the secret"
+  include_headers: true                       # META.headers.email → ops_alert_proposals.requester; the Authorization header is never captured
+  instructions: "README.md § Server description"   # the action's description, exposed to clients as instructions — kept identical to story.json
+  tool_response_ceiling_seconds: 30           # platform ceiling; our tools time out below it
+  tools:                                      # seven: five read-only lookups + two request tools; fixed set — never changed mid-session
+    - { name: ops_get_error_logs,    kind: send_to_story, story: "[OPS] 11 · Get error logs (sub)",           slug: ops-get-error-logs,    timeout_seconds: 20, hints: { read_only: true } }
+    - { name: ops_get_story_export,  kind: send_to_story, story: "[OPS] 12 · Get story export summary (sub)", slug: ops-get-story-export,  timeout_seconds: 20, hints: { read_only: true } }
+    - { name: ops_get_live_activity, kind: send_to_story, story: "[OPS] 13 · Get live activity (sub)",        slug: ops-get-live-activity, timeout_seconds: 20, hints: { read_only: true } }
+    - { name: ops_get_recent_runs,   kind: send_to_story, story: "[OPS] 14 · Get recent runs (sub)",          slug: ops-get-recent-runs,   timeout_seconds: 20, hints: { read_only: true } }
+    - { name: ops_get_ai_usage,      kind: send_to_story, story: "[OPS] 15 · Get AI usage (sub)",             slug: ops-get-ai-usage,      timeout_seconds: 20, hints: { read_only: true } }
+    - { name: request_alert_rule,    kind: send_to_story, story: "[OPS] 17 · Request approval (sub)",         slug: ops-request-approval,  timeout_seconds: 25, hints: { destructive: true },
+        fixed_inputs: { kind: alert_rule, requester: "=META.headers.email", finding_id: null } }            # fixed inputs are set on the tool, never by the model — mechanism VERIFY E10 (docs/VERIFY.md)
+    - { name: request_disable,       kind: send_to_story, story: "[OPS] 17 · Request approval (sub)",         slug: ops-request-approval,  timeout_seconds: 25, hints: { destructive: true },
+        fixed_inputs: { kind: disable, type: disable, action_id: null, value: "", requester: "=META.headers.email", finding_id: null } }
+  consumers:                                  # who connects, and how (README § Which clients connect)
+    - claude-code                             # user-scope entry named `ops-tools` (never `tines`), key from ${OPS_TOOLS_API_KEY}
+    - cursor                                  # ~/.cursor/mcp.json (global), never the project file
+    - claude-desktop                          # the Summary tab's "Claude Desktop" snippet (mcp-remote; Basic vs Bearer is VERIFY E1)
+    - mcp-inspector                           # testing only, "API Token Authentication"
+    - ops-story-health-monitor/triage         # optional: its ONE MCP connection INSTEAD of the five Send to Story tools, lookups only
+
+sub_stories:                                  # the stories the tools point at (each its own folder, slug and PR; built before this server)
+  lookups: [ops-get-error-logs, ops-get-story-export, ops-get-live-activity, ops-get-recent-runs, ops-get-ai-usage]
+  request: ops-request-approval               # [OPS] 17 — the same sub-story the sweep's request_approval calls
+
+ai:
+  agents: []                                  # no AI Agent action; the MCP server action consumes no AI credits
+
+schedule_interval_seconds: 0                  # on demand
+
+send_to_story:
+  enabled: false                              # the server is not itself a sub-story
+  library_seed: 1324549                       # Host and run MCP servers in Tines — imported into 90 Seeds for reference only; never demoed
+
+flows_note: "One flow for the server; no AI credits. The seven tools point at six sub-stories that already count once each (shared with the sweep); whether sub-stories used as tools count as additional flows is VERIFY #13."
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export; never typed

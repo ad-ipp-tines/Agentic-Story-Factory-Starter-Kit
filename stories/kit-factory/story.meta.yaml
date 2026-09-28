@@ -1,0 +1,189 @@
+# story.meta.yaml — [KIT] 00 · Run the story factory. Spec: ../../REPO-DESIGN.md §7 (this story), §8 (Records and
+# Resources), §12 (cost), §13 (security); ./DESIGN.md and ./sections/*.md (action by action).
+# Names only; never a value, never a hostname, never a person.
+
+slug: kit-factory
+name: "[KIT] 00 · Run the story factory"      # must equal story.json name (versionReplace matches by name)
+mode: none                                    # no MCP surface: its AI Agent actions are tool-less, except the one-tool
+                                              # provider probe (llm_tool_probe), which is a check, not a runtime tool path
+owner_team: platform                          # the [KIT] prefix; owner role: platform; CODEOWNERS: /stories/kit-* → security-platform
+tier: ops
+change_control: required                      # switched on in the prod (ops) team after the hand import (§7.1, tenant policy
+                                              # "Enable by default" is a [BY HAND] item)
+locked_in_prod: true                          # `locked: true` via ./scripts/tines story-update after ship (_manifest.yaml locked_slugs)
+never_touch: true                             # policies/never-touch.yml name pattern ^\[KIT\]; plus the live id after the setup-report PR
+team: prod                                    # the ops team IS the manifest's prod team (§7.1); the dev copy lives in the dev team
+
+monitoring:
+  monitor_failures: true                      # story-level "Notify when any action fails"
+  recipients: manifest                        # the ops router + the ops email DL, resolved by ship.yml from _manifest.yaml
+  no_events_watchdog: { action: "dispatch_sweep", seconds: 1800 }   # 2 × the */15 dispatch schedule (§7.1)
+
+keep_events_for_days: 30                      # story.json keep_events_for: 2592000 — raised [BY HAND] above the 7-day default
+run_mode: LIVE                                # submit the kickoff on the LIVE story: Record writes from a change-control draft
+                                              # are test records (§7.1; K39). Sections B–E write Records only through the API
+
+credentials:                                  # names only; created [BY HAND] in the ops team before the first run (§7.1)
+  - tines_api_kit                             # Text; team-scoped Editor API key (ops team); allowed_hosts = the tenant host; Workbench
+                                              #   access off. The story's ONLY Tines API credential: provisioning (section A), Records and
+                                              #   Resource calls (sections B–E). K41 covers what a team-scoped Editor key may call.
+  - github_factory                            # Text; a FIXED name (the Page never chooses it): a fine-grained GitHub token, expiry ≤ 7 days,
+                                              #   all repositories of the one organisation, revoked after day 1 (§13 row 2;
+                                              #   kit/docs/github-token.md; K11). allowed_hosts = api.github.com; Workbench access off.
+                                              #   Used ONLY by section A (A10–A16, A29). The story never writes to GitHub after day 1.
+  - tines_api_readonly                        # Text; the scaffold's Viewer-role team key (read-only by role — scaffold VERIFY #18);
+                                              #   allowed_hosts = the tenant host. Used by C6 app_costs and D9 get_story_credits
+                                              #   (GET /api/v1/ai_usage; which rows it sees is K38).
+  - slack_bot                                 # OPTIONAL; only when the kickoff's chat_surface is slack. A fixed name: whether a credential
+                                              #   can be referenced by a name computed at run time is K9, so the Page's slack_credential_name
+                                              #   is recorded, compared, and a mismatch is a [BY HAND] item in the report.
+                                              #   allowed_hosts = the Slack API host. Used by D's send_notice_slack only.
+
+resources:                                    # JSON Resources the story reads (RESOURCE.<name>); shapes in ../../kit/resources/*.example.json
+  - kit_config                                # Page answers (no emails), team ids, entitlements, environment (prod | dev), tenant_host
+  - kit_state                                 # the run ledger: flat keys, step_*, rt_<type>, fields_<type>, res_<name>, hash_<name>
+  - kit_catalog                               # starter stories, verified Library ids (seed_ids), milestones
+  - sdlc_state_machine                        # phases, statuses, gates, page_decision_table, runtime_dispatch
+  - sdlc_limits                               # enabled, guards_confirmed, runtime caps, timers — both flags false until a person sets them
+  - sdlc_approvers                            # gate → approver emails (never committed)
+  - sdlc_sync_lock                            # {lock: free} — compare-and-swap through POST …/global_resources/{id}/replace
+  - kit_tracker_view                          # the tracker mirror, only when Records are not entitled
+creates_resources:                            # created by A7/A19 through POST /api/v1/global_resources; not read by name except the above
+  - kit_state                                 # A7 (first); every other one by A19, only when absent
+  - kit_config
+  - kit_catalog
+  - sdlc_state_machine
+  - sdlc_limits
+  - sdlc_approvers
+  - sdlc_sync_lock
+  - kit_tracker_view                          # only when Records are not entitled
+  - ops_limits                                # the ops trio's four, from stories/ops-story-health-monitor/resources/*.example.json,
+  - ops_lock                                  #   only when absent; ops_responders = the Page approvers
+  - ops_responders
+  - ops_routing
+
+records:                                      # Record types by name. Created by A18 through POST /api/v1/record_types (not by hand).
+  - sdlc_backlog                              # sections B–E read and write them ONLY through the Records API in HTTP Request actions,
+  - sdlc_events                               #   by the type and field ids in kit_state (rt_<type>, fields_<type>) — never Record actions
+  - sdlc_milestones                           #   (§7.4), so nothing depends on how an import resolves record types (K6)
+reads_records:                                # the ops trio's types, read by id from kit_config.rt_ops_findings / rt_ops_alerts
+  - ops_findings                              #   (added to kit/tenant/config.yaml by PR after day 1 — a [BY HAND] item); D6 and D9
+  - ops_alerts
+
+sub_stories: []                               # none in v1: import does not bring sub-stories along, and a cross-story Send to Story
+                                              # reference would not resolve in another tenant (§7.1). Reusable blocks are Sections.
+
+sections: [A-kickoff-and-provisioning, F-llm-probe, B-tracker-sync-in, C-tracker-pages-and-endpoints, D-dispatch-specialists, E-tracker-outbox]
+
+ai:
+  agents:
+    - name: llm_probe                         # F1 — provider probe, one test call
+      section: F
+      mode: task
+      output_schema: true                     # {ok: boolean, nonce: string} (sections/F-llm-probe.md)
+      tools: []                               # tool-less → the tenant's FAST default; not pinned, because the tenant default is what it checks (K26)
+      mcp_connections: []
+      temperature: 0
+      timeout_seconds: 60
+      retries: 1
+      model: fast
+      model_pinned: false
+      provider: tenant-default                # apply-config writes custom:<name> for a custom or local provider (0 credits; billed_cost)
+      token_alert: { notify: 5000, disable: 10000, period: daily }      # Status tab [BY HAND]; mirrors policies/cost-ceilings.yml
+      skills: []                              # skill-less on purpose (§7.1)
+      budget_ref: "kit-factory/llm_probe"
+    - name: llm_tool_probe                    # F2 — the tool check
+      section: F
+      mode: task
+      output_schema: true                     # {value: number, tool_called: boolean}
+      tools: [probe_constant]                 # ONE Custom tool: an action Group in this story returning {value: 42}
+      mcp_connections: []
+      temperature: 0
+      timeout_seconds: 60
+      retries: 1
+      model: smart                            # a tool moves it to the tenant's SMART default — which is what it checks; not pinned
+      model_pinned: false
+      provider: tenant-default
+      token_alert: { notify: 10000, disable: 20000, period: daily }
+      skills: []
+      budget_ref: "kit-factory/llm_tool_probe"
+    - name: planner                           # D5 — backlog planner (REPO-DESIGN.md §5.3.11)
+      section: D
+      mode: task
+      output_schema: true                     # ../../sdlc/agents/runtime/planner/output-schema.json → the action's Output schema (P-K14)
+      instructions: ../../sdlc/agents/runtime/planner/system-instructions.md
+      tools: []                               # no tools, no credentials (§13 row 7)
+      mcp_connections: []
+      temperature: 0.2
+      timeout_seconds: 60                     # raised from the 30 s default
+      retries: 2                              # never the default 25
+      model: fast                             # the tenant's fast model, PINNED on the action [BY HAND at build]: the skill below is an
+      model_pinned: true                      #   agentic capability, so unpinned the default would be the smart model (§5.2; cost.4)
+      provider: tenant-default
+      token_alert: { notify: 60000, disable: 120000, period: daily }
+      skills: [backlog-planning]              # attached [BY HAND] (no attach API — scaffold VERIFY #14; K27 for how it exports)
+      budget_ref: "kit-factory/planner"
+    - name: brief_writer                      # D4 — intake brief (REPO-DESIGN.md §5.3.12)
+      section: D
+      mode: task
+      output_schema: true                     # ../../sdlc/agents/runtime/brief-writer/output-schema.json
+      instructions: ../../sdlc/agents/runtime/brief-writer/system-instructions.md
+      tools: []
+      mcp_connections: []
+      temperature: 0.2
+      timeout_seconds: 60
+      retries: 2
+      model: fast
+      model_pinned: true
+      provider: tenant-default
+      token_alert: { notify: 100000, disable: 200000, period: daily }
+      skills: [story-brief-writing]
+      budget_ref: "kit-factory/brief_writer"
+    - name: retro_writer                      # D6 — retrospective draft (REPO-DESIGN.md §5.3.13)
+      section: D
+      mode: task
+      output_schema: true                     # ../../sdlc/agents/runtime/retro-writer/output-schema.json
+      instructions: ../../sdlc/agents/runtime/retro-writer/system-instructions.md
+      tools: []
+      mcp_connections: []
+      temperature: 0.2
+      timeout_seconds: 60
+      retries: 2
+      model: fast
+      model_pinned: true
+      provider: tenant-default
+      token_alert: { notify: 75000, disable: 150000, period: daily }
+      skills: [story-retrospective]
+      budget_ref: "kit-factory/retro_writer"
+  credits_policy: "No model decides whether a model runs. The three runtime specialists run only on a state change, the weekly planner branch or a scheduled retro, behind sdlc_limits.enabled AND guards_confirmed (both false until a person sets them after the token alerts and skill attachments) and a per-agent daily cap counted from sdlc_events (D2). The two probes run once per provisioning run. Every runtime run writes meta.model, tokens and credits_used to an sdlc_events row."
+
+schedule_interval_seconds: 900                # dispatch_sweep, */15 (section D)
+schedules:
+  - { action: dispatch_sweep, cron: "*/15 * * * *", timezone: "<tenant tz>", watchdog_seconds: 1800 }
+
+entries:                                      # every way in; flows are counted by Tines (K30: ≈ 5–8 for one multi-entry story)
+  - { section: A, kind: page,     action: kickoff,           access: team_members, url_identifier: story-factory-kickoff }
+  - { section: A, kind: webhook,  action: kickoff_test,      dev_only: true, guard: is_dev_kickoff_test }
+  - { section: B, kind: webhook,  action: tracker_sync_in,   access: secret, include_headers: false, caller: ".github/workflows/tracker-sync.yml (TRACKER_SYNC_URL, environment tracker)" }
+  - { section: C, kind: page,     action: tracker_home,      access: team_members, url_identifier: story-factory-tracker }
+  - { section: C, kind: webhook,  action: app_add_use_case,  app_endpoint: true, apps_only: true }
+  - { section: C, kind: webhook,  action: app_gate_decision, app_endpoint: true, apps_only: true }
+  - { section: C, kind: webhook,  action: app_costs,         app_endpoint: true, apps_only: true }
+  - { section: D, kind: schedule, action: dispatch_sweep }
+  - { section: D, kind: webhook,  action: specialist_test,   dev_only: true, guard: is_dev_specialist_test }
+  - { section: E, kind: webhook,  action: tracker_outbox,    access: secret, response_enabled: true, caller: ".github/workflows/tracker-pull.yml (TRACKER_OUTBOX_URL, environment tracker)" }
+  # Webhook path and secret are never committed: exports carry <assigned-on-import>, and the template copy is exported
+  # with randomize_urls=true (§15.6). Rotate every Webhook secret after import (K8), before copying the two tracker URLs
+  # into the GitHub environment `tracker`.
+
+pages:                                        # specs in ./pages/*.md
+  - { name: kickoff,        kind: root,      spec: pages/kickoff.md }
+  - { name: setup_report,   kind: mid_story, spec: pages/setup-report.md }
+  - { name: tracker_home,   kind: root,      spec: pages/tracker-home.md }
+  - { name: tracker_view,   kind: mid_story, spec: pages/tracker-view.md }
+  - { name: add_use_case,   kind: mid_story, spec: pages/add-use-case.md }
+  - { name: gate_decision,  kind: mid_story, spec: pages/gate-decision.md, access: via_sso_approvers_group }
+
+flows_note: "One story with six storyboard Sections and no sub-stories. Entries: 2 root Pages, 1 schedule, 5 Webhooks in the ops (prod) team (tracker_sync_in, tracker_outbox and the three App endpoints), plus 2 dev-only Webhooks that stop at a Trigger outside the dev team. How Tines counts flows for one story with several entry points is K30 (estimate ≈ 5–8)."
+
+exported_from: { env: dev, story_id: 0, draft_id: "", at: "", sha: "" }   # stamped by /tines-export; never typed

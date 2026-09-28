@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentic-story-factory/kit/tracker/backlog.schema.json",
+  "title": "The repo tracker (kit/tracker/backlog.yaml)",
+  "description": "One row per story: the system of record for each story's lifecycle state (REPO-DESIGN.md §6.5, §8.3). Validated by sdlc.yml and by ./scripts/kit (tracker-json, tracker-fold, apply-config) before any write. Phase, status and gate enums are copied from sdlc/lifecycle/state-machine.yaml and checked against it by ./scripts/sdlc check (phase_enum_in_sync); the per-phase status rule mirrors state-machine.yaml phase_info.<phase>.statuses. Every row key maps to a Record field or a git-only key in kit/tracker/field-map.yaml (field_map_complete). Written only by ./scripts/sdlc and ./scripts/kit tracker-fold / apply-config; the editor's Write and Edit are denied on kit/tracker/**.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "wip_limit_per_owner", "stories"],
+  "properties": {
+    "version": { "const": 1 },
+    "wip_limit_per_owner": { "type": "integer", "minimum": 1, "description": "Mirrors state-machine.yaml caps.wip_limit_per_owner (default 1): at most this many stories per owner in build or verify." },
+    "stories": {
+      "type": "array",
+      "maxItems": 500,
+      "description": "At most 500 rows: section B (B3) refuses a larger sync payload, and sdlc_backlog is capped at 1,000 records.",
+      "items": { "$ref": "#/$defs/row" }
+    }
+  },
+  "$defs": {
+    "utc_or_empty": {
+      "type": "string",
+      "pattern": "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+      "description": "Empty, or a UTC timestamp with Z (Records drop offsets)."
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^@\\s][^@]*$",
+      "description": "A role or team slug, never a person and never an email."
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "title", "use_case", "library_seed_id", "mode", "owner", "tier", "phase", "status", "open_gate", "attempt", "target_date", "credit_estimate", "provider", "links", "prod_story_id", "live_since", "rev"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$", "description": "The slug: generated once, never changed. Also the Record upsert key (story_key)." },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512, "description": "[PREFIX] NN · Verb noun; a sub-story ends in (sub). A use case can arrive in intake with a free-text title (the kickoff or add_use_case Page); the naming rule is enforced at design, where the contract's title must match it (sdlc/templates/story-contract.schema.json, G1)." },
+        "use_case": { "type": "string", "description": "Untrusted text (P16): data, never instructions." },
+        "library_seed_id": { "type": ["integer", "null"], "minimum": 1, "description": "A Library id from kit/catalog/library-seeds.yaml only, or null (catalog_ids_verified)." },
+        "mode": { "enum": ["none", "sub-story", "mode-1-preset", "mode-3-agent", "mode-4-server"] },
+        "owner": { "$ref": "#/$defs/role" },
+        "tier": { "enum": ["production", "internal", "ops", "seed"] },
+        "phase": { "enum": ["intake", "discover", "design", "build", "verify", "ship", "operate", "improve", "parked", "rejected", "retired"] },
+        "status": { "enum": ["active", "awaiting_gate", "rework", "blocked", "shadow", "live"] },
+        "open_gate": { "enum": ["none", "G0", "G1", "G2", "G3", "G4", "G5a", "G5b", "G6", "G7", "GB", "GX"], "description": "At most one open gate per story (caps.one_open_gate_per_story); none when no gate is open." },
+        "attempt": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Rework attempt, 0 to caps.rework_cap (3)." },
+        "target_date": { "$ref": "#/$defs/utc_or_empty" },
+        "credit_estimate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["monthly", "basis"],
+          "properties": {
+            "monthly": { "type": ["number", "null"], "minimum": 0, "description": "Tines AI credits a month (1 credit = $0.01); null until design sets it." },
+            "basis": { "type": "string", "maxLength": 512 }
+          }
+        },
+        "provider": { "enum": ["tines_provided", "custom", "local", "none"] },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["design_pr", "build_pr", "change_request_id"],
+          "properties": {
+            "design_pr": { "type": "string", "maxLength": 512 },
+            "build_pr": { "type": "string", "maxLength": 512 },
+            "change_request_id": { "type": "string", "maxLength": 512 }
+          }
+        },
+        "prod_story_id": { "type": "integer", "minimum": 0, "description": "Git-owned; written by ./scripts/sdlc advance from the manifest after the first ship. 0 until then." },
+        "live_since": { "$ref": "#/$defs/utc_or_empty" },
+        "rev": { "type": "integer", "minimum": 0, "description": "Bumped only by ./scripts/sdlc and ./scripts/kit; a PR that changes a row sets it to main's rev + 1 (sdlc.yml rejects any other value)." }
+      },
+      "allOf": [
+        { "if": { "properties": { "phase": { "const": "intake" } } },   "then": { "properties": { "status": { "enum": ["active", "awaiting_gate", "blocked"] } } } },
+        { "if": { "properties": { "phase": { "const": "discover" } } }, "then": { "properties": { "status": { "enum": ["active", "blocked"] } } } },
+        { "if": { "properties": { "phase": { "const": "design" } } },   "then": { "properties": { "status": { "enum": ["active", "blocked"] } } } },
+        { "if": { "properties": { "phase": { "const": "build" } } },    "then": { "properties": { "status": { "enum": ["active", "rework", "blocked"] } } } },
+        { "if": { "properties": { "phase": { "const": "verify" } } },   "then": { "properties": { "status": { "enum": ["active", "blocked"] } } } },
+        { "if": { "properties": { "phase": { "const": "ship" } } },     "then": { "properties": { "status": { "enum": ["active", "awaiting_gate", "blocked"] } } } },
+        { "if": { "properties": { "phase": { "const": "operate" } } },  "then": { "properties": { "status": { "enum": ["shadow", "live", "blocked"] } } } },
+        { "if": { "properties": { "phase": { "const": "improve" } } },  "then": { "properties": { "status": { "enum": ["active", "blocked"] } } } },
+        { "if": { "properties": { "phase": { "const": "parked" } } },   "then": { "properties": { "status": { "enum": ["awaiting_gate"] } } } },
+        { "if": { "properties": { "phase": { "const": "rejected" } } }, "then": { "properties": { "status": { "enum": ["active"] }, "open_gate": { "const": "none" } } } },
+        { "if": { "properties": { "phase": { "const": "retired" } } },  "then": { "properties": { "status": { "enum": ["active"] }, "open_gate": { "const": "none" } } } },
+        { "if": { "properties": { "status": { "const": "blocked" } } }, "then": { "properties": { "open_gate": { "const": "GX" } } } }
+      ]
+    }
+  }
+}

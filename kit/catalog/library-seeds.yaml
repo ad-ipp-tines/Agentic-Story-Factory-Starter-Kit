@@ -1,0 +1,142 @@
+# kit/catalog/library-seeds.yaml — the verified Tines Story Library ids.
+#
+# Spec: REPO-DESIGN.md §11 (the ten starter stories and the two alternates), §4.4 01 discover, §5.3.1, §5.3.12.
+#
+# THIS IS THE ONLY LIST OF LIBRARY IDS ANY AGENT, PAGE OR SCRIPT MAY CITE.
+#   - story-scout cites only ids from this file; any other id it comes across goes into candidate_ids_unverified[]
+#     and reaches this file only through a CODEOWNER PR (CODEOWNERS: /kit/** → security-platform).
+#   - brief_writer (Tines-side) sees these ids through the kit_catalog Resource, and a Trigger after it drops any
+#     candidate_seed_ids that are not here, so the agent cannot introduce an id.
+#   - the kickoff and add_use_case Pages build their Option lists from kit_catalog, never from free text.
+#   - the lifecycle check discovery_complete fails a discovery note that cites an id not in this file, and
+#     `./scripts/sdlc check` (catalog_ids_verified) fails a tracker row whose library_seed_id is not here.
+#   - `./scripts/kit bundle` copies this file into the kit_catalog Resource; kit-sync.yml keeps the Resource current.
+#
+# A seed is a starting point to READ, never a story to ship. Importing a seed into the Seeds folder is [BY HAND]
+# (the Tines Stories MCP server, Mode 2, cannot import a Library story); the story is then built through the
+# lifecycle in the dev team. A reference_only seed is never recommended for shipping, not even adapted.
+#
+# Names are recorded as the Library shows them. Two names (1321120, 1258068) come from internal research and are
+# confirmed on the Library page before use; every id is re-checked against its own Library page on first use
+# (VERIFY K43 — the id still resolves, the name matches, the entry action is the one expected).
+# Keys per seed:
+#   id              the Library story id (a public id, not a tenant id)
+#   name            the Library story name as recorded
+#   url             the Library page; the only URL story-scout may WebFetch for this seed (settings allow www.tines.com)
+#   reference_only  true = read it, never ship it or recommend shipping it
+#   name_source     public_library | internal_research (the latter must be confirmed on the Library page first, K43)
+#   used_by         the starter-story key(s) in kit/catalog/starter-stories.yaml that start from this seed
+#   role            starter | alternate
+#   verify          the VERIFY ids that apply before relying on the seed
+
+version: 1
+url_template: "https://www.tines.com/library/stories/{id}/"
+
+seeds:
+  - id: 87626
+    name: "Analyze an IP in many services at once"
+    url: "https://www.tines.com/library/stories/87626/"
+    reference_only: false
+    name_source: public_library
+    used_by: [example-enrich-ip]
+    role: starter
+    verify: [K43, "#23"]
+
+  - id: 1231438
+    name: "Monitor action failures in Tines and notify via Slack"
+    url: "https://www.tines.com/library/stories/1231438/"
+    reference_only: false
+    name_source: public_library
+    used_by: [ops-error-router]
+    role: starter
+    verify: [K43, "#23"]
+
+  - id: 1252750
+    name: "Get IP address information"
+    url: "https://www.tines.com/library/stories/1252750/"
+    reference_only: false
+    name_source: public_library
+    used_by: [ip-info-tool]
+    role: starter
+    verify: [K43]
+
+  - id: 1321120
+    name: "Slack interactivity callback handling"
+    url: "https://www.tines.com/library/stories/1321120/"
+    reference_only: false
+    name_source: internal_research
+    used_by: [slack-approval-callbacks]
+    role: starter
+    verify: [K43]
+
+  - id: 1253511
+    name: "Manage long-running jobs and check job status in Workbench"
+    url: "https://www.tines.com/library/stories/1253511/"
+    reference_only: false
+    name_source: public_library
+    used_by: [long-job-status]
+    role: starter
+    verify: [K43]
+
+  - id: 1173034
+    name: "Create an IP enrichment API"
+    url: "https://www.tines.com/library/stories/1173034/"
+    reference_only: false
+    name_source: public_library
+    used_by: [enrichment-api]
+    role: starter
+    verify: [K43]
+
+  - id: 1347799
+    name: "Lookup IOCs via Slack using an agent"
+    url: "https://www.tines.com/library/stories/1347799/"
+    reference_only: false
+    name_source: public_library
+    used_by: [ioc-lookup-slack-agent]
+    role: starter
+    verify: [K43]
+
+  - id: 1324549
+    name: "Host and run MCP servers in Tines"
+    url: "https://www.tines.com/library/stories/1324549/"
+    reference_only: true                 # the Mode 4 pattern to read; ops-tools-server is the kit's own design
+    name_source: public_library
+    used_by: [ops-tools-server]
+    role: starter
+    verify: [K43]
+
+  - id: 1258068
+    name: "Workbench from Slack links (WORKBENCH_LINK())"
+    url: "https://www.tines.com/library/stories/1258068/"
+    reference_only: false
+    name_source: internal_research
+    used_by: [alert-to-workbench]
+    role: starter
+    verify: [K43, K28]
+
+  - id: 1318509
+    name: "Perform deep research on a topic using an agent with Tavily"
+    url: "https://www.tines.com/library/stories/1318509/"
+    reference_only: false
+    name_source: public_library
+    used_by: [research-agent]
+    role: starter
+    verify: [K43]
+
+  - id: 1331122
+    name: "Run workflows using OpenAI's AgentKit"
+    url: "https://www.tines.com/library/stories/1331122/"
+    reference_only: false
+    name_source: public_library
+    used_by: []                          # alternate: a non-Claude client calling a Mode 4 server
+    role: alternate
+    verify: [K43]
+
+  - id: 1252707
+    name: "Schedule a story"
+    url: "https://www.tines.com/library/stories/1252707/"
+    reference_only: false
+    name_source: public_library
+    used_by: []                          # alternate: the companion to long-job-status (#5)
+    role: alternate
+    verify: [K43]

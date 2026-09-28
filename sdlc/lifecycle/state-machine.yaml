@@ -1,0 +1,207 @@
+# sdlc/lifecycle/state-machine.yaml — THE state machine of the Story Development Life Cycle.
+#
+# Spec: REPO-DESIGN.md §4.2 (reproduced in full) plus the keys marked "added" below, which make the machine
+# complete for every decision the gate_decision Page and /sdlc-gate can record (REPO-DESIGN.md §7.8).
+# Prose and a diagram: sdlc/lifecycle/state-machine.md.
+#
+# This file is the SINGLE SOURCE of phase, status and gate names. Everything below is generated from it or
+# checked against it, and `./scripts/sdlc check` (phase_enum_in_sync) fails when one of them differs:
+#   - the TEXT_ENUM fixed values of the sdlc_backlog and sdlc_events Record types (kit/records/*.record-type.json)
+#   - kit/tracker/backlog.schema.json
+#   - the sdlc_state_machine Resource (built by ./scripts/kit bundle, kept current by kit-sync.yml)
+#   - sdlc/observability/event.schema.json and the sdlc/templates/*.schema.json enums
+# Change it only by PR (CODEOWNERS: tines-builders + security-platform). A change ripples into the Record enums and
+# the Resource; the procedure is in state-machine.md, "Changing the machine".
+#
+# How ./scripts/sdlc reads `transitions` (deterministic; no model ever chooses a transition):
+#   - rows are evaluated in FILE ORDER; the first row whose from / gate or check / decision / when all match wins,
+#     so specific rows sit above the generic "*" rows
+#   - a row with a `decision` matches only that decision; a row without one is the catch-all for its gate (a gate
+#     opening, or a decision no earlier row named). ./scripts/sdlc refuses a decision not in gate_info.<gate>.decisions
+#   - "*"          any phase that is not terminal (rejected, retired); `parked` is included
+#   - "$same"      the phase the story is in now
+#   - "$previous"  read from events.jsonl: as `to`, the phase and status held before entering `parked`; as `status`,
+#                  the status held before the current one (before `blocked` for a GX resume, the operate status
+#                  before improve for retro_closed / retire_candidate)
+#   - gate         the one gate whose recorded decision moves the story; `gates: [G1, G2]` means both, in order
+#   - check        a named deterministic check under `checks:`; `./scripts/sdlc advance` applies the row when it passes
+#   - decision     the decision word the gate records (one of gate_info.<gate>.decisions)
+#   - when         a guard over tracker fields, caps and the manifest, evaluated by the script
+#   - status       the status taken in the target phase (default: the first entry of phase_info.<to>.statuses — active,
+#                  or awaiting_gate for parked); a quoted expression is evaluated by the script
+#   - then         a follow-up the script prepares (revert_pr) or a gate it opens next (G7)
+#   - reset_attempt  (added) the row sets attempt back to 0
+
+version: 1
+phases:   [intake, discover, design, build, verify, ship, operate, improve]
+holding:  [parked]
+terminal: [rejected, retired]
+statuses: [active, awaiting_gate, rework, blocked, shadow, live]      # shadow|live only in operate
+gates:    [G0, G1, G2, G3, G4, G5a, G5b, G6, G7, GB, GX]                  # G5a = first ship (new: true); G5b = change request
+caps:     { rework_cap: 3, failed_corrections_cap: 2, wip_limit_per_owner: 1, one_open_gate_per_story: true }
+
+# added — timers and thresholds the checks and the dispatch read. The sdlc_limits Resource carries the Tines-side
+# copies with the same values (gate_nudge_days 3, retro_cadence_days 30, shadow_days 7; REPO-DESIGN.md §8.2) — keep
+# the two equal when either changes.
+timers:     { gate_nudge_days: 3, shadow_days: 7, retro_after_live_days: 7, retro_cadence_days: 30 }
+thresholds: { budget_warn_pct: 80, budget_park_pct: 100, credit_variance_improve: 1.5, eval_k_default: 3, summary_max_chars: 1500 }
+
+# added — the value a row's open_gate takes when no gate is open (the Records TEXT_ENUM carries it too)
+open_gate_none: none
+
+# added — which statuses each phase may hold. `./scripts/sdlc apply` and `advance` refuse any other pair.
+# A terminal row's status is fixed to `active` and never read: its phase IS its state.
+phase_info:
+  intake:   { n: "00", file: sdlc/phases/00-intake.md,   statuses: [active, awaiting_gate, blocked] }
+  discover: { n: "01", file: sdlc/phases/01-discover.md, statuses: [active, blocked] }
+  design:   { n: "02", file: sdlc/phases/02-design.md,   statuses: [active, blocked] }            # G2 shows as build + an open design PR
+  build:    { n: "03", file: sdlc/phases/03-build.md,    statuses: [active, rework, blocked] }
+  verify:   { n: "04", file: sdlc/phases/04-verify.md,   statuses: [active, blocked] }            # G4 shows as ship + an open build PR
+  ship:     { n: "05", file: sdlc/phases/05-ship.md,     statuses: [active, awaiting_gate, blocked] }  # awaiting_gate + open_gate G5a|G5b after the merge
+  operate:  { n: "06", file: sdlc/phases/06-operate.md,  statuses: [shadow, live, blocked] }
+  improve:  { n: "07", file: sdlc/phases/07-improve.md,  statuses: [active, blocked] }
+  parked:   { n: "--", file: sdlc/gates/GB-budget.md,    statuses: [awaiting_gate] }       # waiting for a human unpark
+  rejected: { n: "--", file: sdlc/gates/G0-intake-triage.md, statuses: [active] }
+  retired:  { n: "--", file: sdlc/gates/G7-ownership-review.md, statuses: [active] }
+
+# added — one entry per gate: its type, who decides, the one instrument, where it is recorded, and the decision
+# words it may record. Types: human · deterministic · layered (deterministic + model + human) · budget
+# (deterministic to open, human to release). The per-gate files carry the full rules.
+gate_info:
+  G0:  { type: human,         file: sdlc/gates/G0-intake-triage.md,
+         decided_by: "the story owner or an approver listed for G0",
+         instrument: "the gate_decision Page when Records are entitled; /sdlc-gate only on the Community path",
+         recorded_by: "a gate_decision event (Records → tracker PR, or ./scripts/sdlc gate on the Community path)",
+         decisions: [build, reject, park] }
+  G1:  { type: deterministic, file: sdlc/gates/G1-readiness.md,
+         decided_by: "./scripts/sdlc ready (and sdlc.yml on the design PR)",
+         instrument: "the script's JSON result, attached to the design PR",
+         recorded_by: "the sdlc.yml check result; never a gate_decision event",
+         decisions: [pass, fail] }
+  G2:  { type: human,         file: sdlc/gates/G2-design-approval.md,
+         decided_by: "a CODEOWNER of the story's prefix who is not the PR author",
+         instrument: "the merge of the design PR (branch design/<slug>)",
+         recorded_by: "the merge; the tracker change phase: build rides in the PR",
+         decisions: [merged, rethink_reuse] }
+  G3:  { type: human,         file: sdlc/gates/G3-plan-approval.md,
+         decided_by: "the person driving the build session",
+         instrument: "/sdlc-gate <slug> G3 approve|reject",
+         recorded_by: "a gate_decision event with actor_kind: human in events.jsonl (build-log.md is never parsed)",
+         decisions: [approve, reject] }
+  G4:  { type: layered,       file: sdlc/gates/G4-verify-and-merge.md,
+         decided_by: "sdlc.yml (calls lint.yml and review.yml), verify-report.json, the human QA verification line, a CODEOWNER, and a human merge (never the author)",
+         instrument: "the merge of the build PR (branch story/<slug>/*)",
+         recorded_by: "the merge; the tracker change phase: ship rides in the PR",
+         decisions: [merged, changes_requested] }
+  G5a: { type: human,         file: sdlc/gates/G5-change-request-approval.md,
+         decided_by: "a required reviewer of the GitHub production environment, before ship.yml's mode: new import",
+         instrument: "the GitHub environment review",
+         recorded_by: "ship.md, written by CI through a PR (the G5 evidence step)",
+         decisions: [approved_and_imported, rejected] }
+  G5b: { type: human,         file: sdlc/gates/G5-change-request-approval.md,
+         decided_by: "the named approver in Tines (no approver key exists in CI)",
+         instrument: "the change request in Tines (approve and push), or promote.yml on an APPROVED request",
+         recorded_by: "ship.md, written by CI through a PR (the G5 evidence step)",
+         decisions: [approved_and_pushed, rejected] }
+  G6:  { type: human,         file: sdlc/gates/G6-go-live.md,
+         decided_by: "the owner and an approver listed for G6",
+         instrument: "the gate_decision Page when Records are entitled; /sdlc-gate only on the Community path",
+         recorded_by: "go-live-review.md and a gate_decision event",
+         decisions: [go_live, stay_shadow] }
+  G7:  { type: human,         file: sdlc/gates/G7-ownership-review.md,
+         decided_by: "the owner and platform",
+         instrument: "the gate_decision Page when Records are entitled; /sdlc-gate only on the Community path",
+         recorded_by: "a gate_decision event",
+         decisions: [keep, rescope, retire] }
+  GB:  { type: budget,        file: sdlc/gates/GB-budget.md,
+         decided_by: "opened by ./scripts/sdlc ready (design), the sdlc_limits caps (Tines) or the ops sweep (operate); released by a human",
+         instrument: "release: the gate_decision Page option `unpark` when Records are entitled; /sdlc-gate <slug> GB unpark only on the Community path",
+         recorded_by: "tracker phase parked + a budget event; the release is a gate_decision event (gate GB, decision unpark)",
+         decisions: [park, unpark] }
+  GX:  { type: human,         file: sdlc/gates/GX-escalation.md,
+         decided_by: "the owner",
+         instrument: "the gate_decision Page when Records are entitled; /sdlc-gate only on the Community path",
+         recorded_by: "an escalation event when it opens; a gate_decision event when it is decided",
+         decisions: [resume, park, reject] }
+
+# added — which instrument may record which gate (REPO-DESIGN.md §4.5 rule 3: one instrument per gate).
+# ./scripts/sdlc gate refuses anything outside `sdlc_gate_always`, and refuses `sdlc_gate_community_only`
+# whenever kit/tenant/config.yaml says Records are entitled.
+instruments:
+  sdlc_gate_always:         [G3]
+  sdlc_gate_community_only: [G0, G6, G7, GB, GX]
+  gate_decision_page:       [G0, G6, G7, GX]        # plus the Page's gate option `unpark` = gate GB, decision unpark
+  merge:                    [G2, G4]
+  github_environment:       [G5a]
+  tines_change_request:     [G5b]
+  script:                   [G1]
+
+transitions:
+  # 00 intake
+  - { from: intake,   to: intake,   check: intake_complete, status: awaiting_gate, then: G0 }   # added: in-phase — the brief is complete, G0 opens (`sdlc advance`)
+  - { from: intake,   to: discover, gate: G0, decision: build }
+  - { from: intake,   to: rejected, gate: G0, decision: reject }
+  - { from: intake,   to: parked,   gate: G0, decision: park }
+  # 01 discover
+  - { from: discover, to: design,   check: discovery_complete }
+  # 02 design
+  - { from: design,   to: build,    gates: [G1, G2] }                                  # G1 deterministic first, then G2 human
+  - { from: design,   to: discover, gate: G2, decision: rethink_reuse }
+  # 03 build
+  - { from: build,    to: verify,   check: build_evidence }                            # G3 (plan approval) happens inside build
+  # 04 verify
+  - { from: verify,   to: build,    gate: G4, decision: changes_requested, when: "attempt < rework_cap", status: rework }
+  - { from: verify,   to: verify,   gate: GX, when: "attempt >= rework_cap", status: blocked }
+  - { from: verify,   to: ship,     gate: G4, decision: merged, status: awaiting_gate, then: "G5a if manifest new: true else G5b" }   # status/then added: the build PR carries them
+  # 05 ship
+  # First ship (manifest new: true): ship.yml's mode: new import creates the story with no change request, so the
+  # human gate is the GitHub `production` environment's required reviewer before that import (G5a); change control is
+  # then switched on for the new story [BY HAND]. Every later ship is a versionReplace draft + change request (G5b).
+  - { from: ship,     to: operate,  gate: G5a, when: "manifest new: true", decision: approved_and_imported, status: "shadow if contract.risk.side_effects else live" }
+  - { from: ship,     to: operate,  gate: G5b, decision: approved_and_pushed, status: "shadow if contract.risk.side_effects else live" }
+  - { from: ship,     to: build,    gate: G5a, decision: rejected, status: rework, then: revert_pr }
+  - { from: ship,     to: build,    gate: G5b, decision: rejected, status: rework, then: revert_pr }
+  # revert_pr: before returning to build, `sdlc advance` prepares the revert the way /tines-rollback does (branch
+  # rollback/<slug>/<sha>, git revert of the rejected commit, PR), so main returns to what is live; drift.yml skips
+  # the slug while that PR is open (§3.3 row 21). The revert restores stories/<slug>/** only: lifecycle artifacts
+  # (sdlc/work/<slug>/**, the tracker row) are never reverted — events.jsonl is append-only, so the rejection is a
+  # new event (sdlc/lifecycle/touch-sets.yaml, set `rollback`).
+  # 06 operate
+  - { from: operate,  to: operate,  gate: G6, decision: go_live, status: live }
+  - { from: operate,  to: operate,  gate: G6, decision: stay_shadow, status: shadow }  # added: the Page's second G6 option
+  - { from: operate,  to: improve,  check: improve_trigger }
+  # 07 improve
+  # order matters: a closed retro that proposes retirement must reach G7, so retire_candidate is tested before
+  # retro_closed (§4.2 lists them the other way round)
+  - { from: improve,  to: design,   check: change_needed, reset_attempt: true }        # a new iteration; attempt resets to 0
+  - { from: improve,  to: operate,  check: retire_candidate, then: G7, status: "$previous" }   # the retro proposes retirement; G7 decides
+  - { from: improve,  to: operate,  check: retro_closed, status: "$previous" }         # back to the operate status held before improve
+  - { from: operate,  to: retired,  gate: G7, decision: retire }
+  - { from: operate,  to: operate,  gate: G7, decision: keep, status: "$same" }        # added: the Page's G7 options
+  - { from: operate,  to: design,   gate: G7, decision: rescope, reset_attempt: true } # added: re-scope is a new design iteration
+  # any phase — escalation (GX)
+  - { from: verify,   to: build,    gate: GX, decision: resume, when: "attempt >= rework_cap", status: rework, reset_attempt: true }   # added: resuming at the cap is a fresh rework budget
+  - { from: "*",      to: "$same",  gate: GX, decision: resume, status: "$previous" }  # added: back to the status held before blocked
+  - { from: "*",      to: parked,   gate: GX, decision: park }                         # added
+  - { from: "*",      to: rejected, gate: GX, decision: reject }                       # added
+  - { from: "*",      to: "$same",  gate: GX, status: blocked }                        # two failed corrections, needs_human, schema failure, critic disagreement — in any phase
+  # any phase — budget and WIP (GB). The unpark row sits first: a parked story also matches "*".
+  - { from: parked,   to: "$previous", gate: GB, decision: unpark }                    # §4.2 writes this row without `gate`; the release is recorded as gate GB (gate_info.GB)
+  - { from: "*",      to: parked,   gate: GB }
+
+checks:   # deterministic; implemented in scripts/sdlc_state.py; each lists the evidence it reads
+  intake_complete:    ["sdlc/work/<slug>/intake.md exists", "every front-matter field is set (story_key, title, owner, source, drafted_by, data_sensitivity, simplest_rung, candidate_seed_ids)", "no bare [TBD] and no template placeholder remains in the brief", "every candidate seed id is in kit/catalog/library-seeds.yaml"]
+  discovery_complete: ["sdlc/work/<slug>/discovery.md exists", "reuse_decision set", "every cited Library id is in kit/catalog/library-seeds.yaml"]
+  build_evidence:     ["a story/<slug>/* branch exists", "story.meta.yaml exported_from.at is later than the build start event", "./scripts/lint-story.sh passes", "events.jsonl holds a gate_decision event for G3 with actor_kind: human, after the build start event (recorded by /sdlc-gate; build-log.md is never parsed)"]
+  improve_trigger:    ["an ops finding of severity high or critical on the story", "an eval regression", "credits above 1.5 × the estimate", "retro due: 7 days after live, then every retro_cadence_days", "an owner request"]   # the ops-finding, credit and retro-due conditions are evaluated in [KIT] 00 section D, which can read ops_findings (§7.6 D9) and writes phase: improve with pending_repo_sync; an eval regression or an owner request is recorded repo-side
+  change_needed:      ["retro.md keep_or_change == change"]
+  retire_candidate:   ["retro.md keep_or_change == retire_candidate"]
+  retro_closed:       ["retro.md marked closed", "the eval cases it asked for are merged and passing"]
+
+# added — the Tines-side dispatch table (REPO-DESIGN.md §6.4). ./scripts/kit bundle copies it into the
+# sdlc_state_machine Resource, whose Triggers in [KIT] 00 section D decide which runtime specialist runs. No model
+# decides; the values mirror timers above and the sdlc_limits Resource.
+runtime_dispatch:
+  on_enter:          { intake: brief_writer, improve: retro_writer }
+  on_backlog_change: { agent: planner, debounce_minutes: 60 }
+  on_schedule:       { retro_writer: { after_live_days: 7, every_days: 30 }, planner: { weekly_day: MON } }

@@ -1,0 +1,270 @@
+# .github/workflows/tracker-pull.yml — Flow 2: Tines-side changes → a tracker PR a person merges (REPO-DESIGN.md §6.5,
+# §7.7 section E; kit/tracker/README.md).
+#
+# pull      every 30 minutes (and on dispatch):
+#             ./scripts/kit tracker-fold --pull           POST {op: "pull"} to $TRACKER_OUTBOX_URL (the response-enabled
+#                                                         tracker_outbox Webhook; K15) and fold the answer into
+#                                                         kit/tracker/*.yaml, sdlc/work/<slug>/{intake.md, retro.md,
+#                                                         events.jsonl}; conflicts keep git's value and are marked
+#             → branch tracker/pull-<run_id> → PR labelled `tracker`, opened with the tracker-bot GitHub App token
+#             ./scripts/kit tracker-fold --ack            POST {op: "ack", items[{key, outbox_seq}]} (E4)
+# snapshot  nightly at 01:40 UTC (before tracker-sync.yml's 02:40 full sync), and on dispatch:
+#             open_pr_keys = the story keys of open PRs from tracker/* branches (each PR body's <!-- tracker-keys --> line)
+#             ./scripts/kit tracker-fold --snapshot       POST {op: "snapshot", open_pr_keys[]} (E5 clears abandoned pending
+#                                                         rows and returns every row and the kit_state.hash_<name> values);
+#                                                         compares every row with git and every hash with the Resources
+#                                                         generated from main (resources_in_sync)
+#             rows that differ → branch tracker/drift-<run_id> → PR labelled `tracker-drift` proposing the Records values
+#             (merge it to accept the tenant's state; close it and tonight's full sync restores git's values)
+#             Resources that differ → the job fails with the list: re-run kit-sync.yml
+#
+# Why a GitHub App token and never GITHUB_TOKEN: GitHub starts no pull_request workflows for a PR opened with
+# GITHUB_TOKEN, so sdlc.yml — the one required check — would never report on the tracker PR. The tracker-bot App is
+# installed on this repository only, with write access to contents and pull requests (exact permission headings as
+# for K11); its token (POST /app/installations/{id}/access_tokens, one hour) is minted by actions/create-github-app-token.
+#
+# Secrets (GitHub environment `tracker`, deployment branches limited to main, no required reviewers):
+#   TRACKER_OUTBOX_URL        the tracker_outbox Webhook URL (carries a secret; never in .env, never printed; copy it
+#                             after rotating the Webhook's secret, K8)
+#   TRACKER_BOT_APP_ID        the tracker-bot GitHub App's id
+#   TRACKER_BOT_PRIVATE_KEY   its private key
+# Until TRACKER_OUTBOX_URL exists (before provisioning, the template repository, the Community path) both jobs stop
+# with a notice. The scripts refuse every outbox call unless GITHUB_ACTIONS=true and GITHUB_REF=refs/heads/main.
+
+name: tracker-pull
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # pull
+    - cron: "40 1 * * *" # nightly snapshot
+  workflow_dispatch:
+    inputs:
+      op:
+        description: "pull (fold pending Tines-side changes) or snapshot (the nightly comparison)"
+        required: true
+        default: pull
+        type: choice
+        options: [pull, snapshot]
+
+permissions:
+  contents: read # branches and PRs are written with the tracker-bot App token, never GITHUB_TOKEN
+  pull-requests: read # gh pr list for open_pr_keys
+
+concurrency:
+  group: tracker-pull
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  pull:
+    name: fold the outbox into a tracker PR
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'schedule' && github.event.schedule == '*/30 * * * *') ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.op == 'pull'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: tracker
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # main's history of kit/tracker/* decides conflicts
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Is the outbox configured?
+        id: gate
+        env:
+          TRACKER_OUTBOX_URL: ${{ secrets.TRACKER_OUTBOX_URL }}
+        run: |
+          if [ -z "${TRACKER_OUTBOX_URL:-}" ]; then
+            echo "::notice::TRACKER_OUTBOX_URL is not set in the environment 'tracker'; nothing to pull"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull and fold (Flow 2)
+        id: fold
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          TRACKER_OUTBOX_URL: ${{ secrets.TRACKER_OUTBOX_URL }}
+        run: |
+          set -euo pipefail
+          ./scripts/kit tracker-fold --pull --summary "$RUNNER_TEMP/fold.json" --pr-body "$RUNNER_TEMP/body.md"
+          ./scripts/kit tracker-json --check
+          if [ -n "$(git status --porcelain -- kit/tracker sdlc/work)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          acks=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("acks") or []))' "$RUNNER_TEMP/fold.json")
+          echo "acks=${acks}" >> "$GITHUB_OUTPUT"
+          { echo "## Tracker pull"; echo; cat "$RUNNER_TEMP/body.md"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mint the tracker-bot token
+        id: bot
+        if: steps.fold.outputs.changed == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TRACKER_BOT_APP_ID }}
+          private-key: ${{ secrets.TRACKER_BOT_PRIVATE_KEY }}
+
+      - name: Open the tracker PR (branch tracker/pull-<run_id>, label tracker)
+        id: pr
+        if: steps.fold.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="tracker/pull-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --quiet -c "$branch"
+          git add -- kit/tracker sdlc/work
+          git commit --quiet -m "tracker: fold Tines-side changes (tracker-pull run ${GITHUB_RUN_ID})"
+          git push --quiet "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+          # the `tracker` label is created by hand (the [BY HAND] list, REPO-DESIGN.md §7.2); this workflow never creates labels
+          if url=$(gh pr create --base main --head "$branch" --label tracker \
+                     --title "tracker: Tines-side changes (run ${GITHUB_RUN_ID})" --body-file "$RUNNER_TEMP/body.md" < /dev/null); then
+            :
+          else
+            echo "::warning::could not add the 'tracker' label (create it by hand: the [BY HAND] list); opening the PR without it"
+            url=$(gh pr create --base main --head "$branch" \
+                    --title "tracker: Tines-side changes (run ${GITHUB_RUN_ID})" --body-file "$RUNNER_TEMP/body.md" < /dev/null)
+          fi
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+          echo "Opened ${url}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Acknowledge the folded items (E4)
+        # after the PR exists, or when the fold changed nothing (the items are already true in git)
+        if: >-
+          steps.fold.outputs.acks != '0' && steps.fold.outputs.acks != '' &&
+          (steps.fold.outputs.changed == 'false' || steps.pr.outputs.url != '')
+        env:
+          TRACKER_OUTBOX_URL: ${{ secrets.TRACKER_OUTBOX_URL }}
+        run: ./scripts/kit tracker-fold --ack "$RUNNER_TEMP/fold.json"
+
+  snapshot:
+    name: nightly snapshot — drift and resources_in_sync
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'schedule' && github.event.schedule == '40 1 * * *') ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.op == 'snapshot'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: tracker
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Is the outbox configured?
+        id: gate
+        env:
+          TRACKER_OUTBOX_URL: ${{ secrets.TRACKER_OUTBOX_URL }}
+        run: |
+          if [ -z "${TRACKER_OUTBOX_URL:-}" ]; then
+            echo "::notice::TRACKER_OUTBOX_URL is not set in the environment 'tracker'; no snapshot"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Keys of open tracker PRs
+        id: keys
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr list --state open --limit 200 --json headRefName,body > "$RUNNER_TEMP/open-prs.json"
+          keys=$(python3 - "$RUNNER_TEMP/open-prs.json" <<'PY'
+          import json, re, sys
+          keys = set()
+          for pr in json.load(open(sys.argv[1])):
+              if not str(pr.get("headRefName", "")).startswith("tracker/"):
+                  continue
+              match = re.search(r"<!-- tracker-keys: ([a-z0-9,-]*) -->", pr.get("body") or "")
+              if match:
+                  keys.update(k for k in match.group(1).split(",") if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", k))
+          print(",".join(sorted(keys)))
+          PY
+          )
+          echo "keys=${keys}" >> "$GITHUB_OUTPUT"
+
+      - name: Snapshot and compare
+        id: snap
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          TRACKER_OUTBOX_URL: ${{ secrets.TRACKER_OUTBOX_URL }}
+          OPEN_PR_KEYS: ${{ steps.keys.outputs.keys }}
+        run: |
+          set -uo pipefail
+          ./scripts/kit tracker-fold --snapshot --open-pr-keys "$OPEN_PR_KEYS" --fold-divergent \
+            --report "$RUNNER_TEMP/snapshot.json" --pr-body "$RUNNER_TEMP/drift.md"
+          rc=$?
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 4 ]; then exit "$rc"; fi
+          if [ -n "$(git status --porcelain -- kit/tracker sdlc/work)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          python3 - "$RUNNER_TEMP/snapshot.json" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          print("## Nightly tracker snapshot\n")
+          print(f"in sync: **{report['in_sync']}**\n")
+          for d in report["divergent_rows"]:
+              fields = ", ".join(f["field"] for f in d["fields"]) or "—"
+              print(f"- `{d['key']}` {d['kind']}: {fields}")
+          for p in report["resource_problems"]:
+              print(f"- resources_in_sync: {p}")
+          PY
+          problems=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["resource_problems"]))' "$RUNNER_TEMP/snapshot.json")
+          echo "resource_problems=${problems}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint the tracker-bot token
+        id: bot
+        if: steps.snap.outputs.changed == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TRACKER_BOT_APP_ID }}
+          private-key: ${{ secrets.TRACKER_BOT_PRIVATE_KEY }}
+
+      - name: Open the tracker-drift PR (branch tracker/drift-<run_id>)
+        if: steps.snap.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="tracker/drift-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --quiet -c "$branch"
+          git add -- kit/tracker sdlc/work
+          git commit --quiet -m "tracker-drift: Records differ from git (snapshot run ${GITHUB_RUN_ID})"
+          git push --quiet "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+          # the `tracker-drift` label is created by hand (the [BY HAND] list); without it the PR opens unlabelled
+          gh pr create --base main --head "$branch" --label tracker-drift \
+            --title "tracker-drift: Records differ from git (run ${GITHUB_RUN_ID})" --body-file "$RUNNER_TEMP/drift.md" < /dev/null \
+            || gh pr create --base main --head "$branch" \
+                 --title "tracker-drift: Records differ from git (run ${GITHUB_RUN_ID})" --body-file "$RUNNER_TEMP/drift.md" < /dev/null
+
+      - name: Fail on Resource drift (re-run kit-sync.yml)
+        if: steps.snap.outputs.resource_problems != '' && steps.snap.outputs.resource_problems != '0'
+        run: |
+          echo "::error::the tenant's generated Resources differ from main (resources_in_sync) — run kit-sync.yml (Actions → kit-sync → Run workflow)"
+          exit 1

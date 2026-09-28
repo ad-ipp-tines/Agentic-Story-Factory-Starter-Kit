@@ -1,0 +1,412 @@
+{
+  "name": "[SEC] 01 · Enrich IP (sub)",
+  "description": "SKELETON — NOT A REAL EXPORT. This file lists the actions, names, types and links that /tines-build-story produces for this story, with placeholder GUIDs and formula sketches. The first `/tines-export example-enrich-ip` (GET /api/v1/stories/{id}/export?randomize_urls=false&clear_recipients=true | scripts/normalize.jq) replaces this file entirely. Never hand-edit; links reference agents by index. Any key marked VERIFY in an action's description is unconfirmed until read from a real export.",
+  "guid": "00000000000000000000000000000000",
+  "slug": "sec_01_enrich_ip_sub",
+  "schema_version": 30,
+  "standard_lib_version": 96,
+  "action_runtime_version": 88,
+  "keep_events_for": 2592000,
+  "monitor_failures": true,
+  "recipients": [],
+  "send_to_story_enabled": true,
+  "send_to_story_access": "team",
+  "send_to_story_access_source": 1,
+  "send_to_story_timeout_enabled": true,
+  "send_to_story_timeout_duration_seconds": 25,
+  "send_to_story_skill_use_requires_confirmation": false,
+  "parent_only_send_to_story": false,
+  "synchronous_webhooks_enabled": false,
+  "entry_agent_guid": "00000000000000000000000000000001",
+  "exit_agent_guids": [
+    "00000000000000000000000000000014",
+    "00000000000000000000000000000015",
+    "00000000000000000000000000000016"
+  ],
+  "api_entry_action_guids": [],
+  "api_exit_action_guids": [],
+  "send_to_stories": [],
+  "sections": [],
+  "pages": [],
+  "app_endpoints": null,
+  "integrations": [],
+  "tags": ["stories-as-code", "sub-story"],
+  "icon": ":mag:",
+  "reporting_status": true,
+  "time_saved_unit": "minutes",
+  "time_saved_value": 0,
+  "integration_product": null,
+  "integration_vendor": null,
+  "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+  "llm_product_instructions": "",
+  "start_reference": null,
+  "story_library_metadata": {},
+  "diagram_notes": [
+    {
+      "content": "**[SEC] 01 · Enrich IP (sub)** — Mode badge: sub-story.\n\nTake one IP address, refuse it if it sits in a protected range, answer from the cache if the verdict is fresh, otherwise look it up in two reputation services, and return one verdict with a score, the sources consulted and a one-sentence summary. Never blocks, never writes to any security tool, never returns raw vendor payloads.\n\nInput: {ip, requester?, source?} · Output: {verdict, score, sources, summary} · Refused: {status: refused, reason, ip} · Failure: {status: error, error_category, retryable, message}\n\nCredentials by name: virustotal_api, abuseipdb_api · Resource: never_block · Record type: ioc_cache",
+      "position": [-30, -420],
+      "guid": "000000000000000000000000000000a1",
+      "width": 420
+    }
+  ],
+  "agents": [
+    {
+      "type": "Agents::WebhookAgent",
+      "name": "receive_ip",
+      "disabled": false,
+      "description": "SKELETON #0 — the Send to Story entry (entry_agent_guid). Accepts {ip, requester?, source?}. path/secret are assigned by Tines on import. Watchdog: no events for 7200 s.",
+      "guid": "00000000000000000000000000000001",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "path": "<assigned-on-import>",
+        "secret": "<assigned-on-import>",
+        "verbs": "post"
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": 7200 },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::EventTransformationAgent",
+      "name": "normalize",
+      "disabled": false,
+      "description": "SKELETON #1 — DEFAULT() on every input so a missing field never breaks a formula.",
+      "guid": "00000000000000000000000000000002",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "mode": "message_only",
+        "loop": false,
+        "payload": {
+          "ip": "=DEFAULT(receive_ip.body.ip, \"\")",
+          "requester": "=DEFAULT(receive_ip.body.requester, \"unknown\")",
+          "source": "=DEFAULT(receive_ip.body.source, \"unknown\")"
+        }
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "is_valid_input",
+      "disabled": false,
+      "description": "SKELETON #2 — passes a well-formed IPv4 address.",
+      "guid": "00000000000000000000000000000003",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "rules": [
+          { "type": "regex", "value": "^(\\d{1,3}\\.){3}\\d{1,3}$", "path": "<<normalize.ip>>" }
+        ]
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "is_invalid_input",
+      "disabled": false,
+      "description": "SKELETON #3 — the complement of #2 → error (validation, not retryable). VERIFY: the export rule `type` value for 'does not match regex' is a placeholder here.",
+      "guid": "00000000000000000000000000000004",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "rules": [
+          { "type": "VERIFY:does-not-match-regex", "value": "^(\\d{1,3}\\.){3}\\d{1,3}$", "path": "<<normalize.ip>>" }
+        ]
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "is_protected",
+      "disabled": false,
+      "description": "SKELETON #4 — the guard before any lookup: the IP is inside a CIDR in the never_block Resource. VERIFY the IN_CIDR argument shape against an array Resource.",
+      "guid": "00000000000000000000000000000005",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "rules": [
+          { "type": "field==value", "value": "true", "path": "=IN_CIDR(normalize.ip, RESOURCE.never_block)" }
+        ]
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "is_not_protected",
+      "disabled": false,
+      "description": "SKELETON #5 — the complement of #4.",
+      "guid": "00000000000000000000000000000006",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "rules": [
+          { "type": "field==value", "value": "false", "path": "=IN_CIDR(normalize.ip, RESOURCE.never_block)" }
+        ]
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "VERIFY:records-action",
+      "name": "check_cache",
+      "disabled": false,
+      "description": "SKELETON #6 — Records action: search ioc_cache for ip == normalize.ip and expires_at > now. VERIFY: the Records action export type and its options/output shape were not observed in the sample exports.",
+      "guid": "00000000000000000000000000000007",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "record_type": "ioc_cache",
+        "operation": "search",
+        "filters": { "ip": "<<normalize.ip>>", "expires_at_after": "<<NOW()>>" }
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "cache_hit",
+      "disabled": false,
+      "description": "SKELETON #7 — a fresh cached verdict exists → result. VERIFY the Records action output path used in `path`.",
+      "guid": "00000000000000000000000000000008",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "rules": [
+          { "type": "field>value", "value": "0", "path": "=SIZE(check_cache.records)" }
+        ]
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "cache_miss",
+      "disabled": false,
+      "description": "SKELETON #8 — no fresh cached verdict → lookups.",
+      "guid": "00000000000000000000000000000009",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "rules": [
+          { "type": "field==value", "value": "0", "path": "=SIZE(check_cache.records)" }
+        ]
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "lookup_virustotal",
+      "disabled": false,
+      "description": "SKELETON #9 — the VirusTotal IP report template, credential virustotal_api. Hardened: retry_on_status [429, 500-599], retries 6, emit failure event Always, failure path → error. VERIFY export keys for retries / emit_failure_event / log_error_* and how a status range is written.",
+      "guid": "00000000000000000000000000000010",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "url": "<from the VirusTotal template, for <<normalize.ip>>>",
+        "method": "get",
+        "content_type": "application_json",
+        "headers": { "x-apikey": "<<CREDENTIAL.virustotal_api>>" },
+        "retry_on_status": ["429", "500-599"],
+        "VERIFY_retries": 6,
+        "VERIFY_emit_failure_event": "always"
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": "<virustotal-template-guid>", "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "lookup_abuseipdb",
+      "disabled": false,
+      "description": "SKELETON #10 — the AbuseIPDB check template, credential abuseipdb_api. Same hardening as #9; sequential after #9 so one branch carries both results.",
+      "guid": "00000000000000000000000000000011",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "url": "<from the AbuseIPDB template, for <<normalize.ip>>>",
+        "method": "get",
+        "content_type": "application_json",
+        "headers": { "Key": "<<CREDENTIAL.abuseipdb_api>>" },
+        "retry_on_status": ["429", "500-599"],
+        "VERIFY_retries": 6,
+        "VERIFY_emit_failure_event": "always"
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": "<abuseipdb-template-guid>", "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::EventTransformationAgent",
+      "name": "verdict",
+      "disabled": false,
+      "description": "SKELETON #11 — score and verdict from both lookups with DEFAULT() on every vendor field. Vendor response paths are placeholders: confirm them from the templates' output.",
+      "guid": "00000000000000000000000000000012",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "mode": "message_only",
+        "loop": false,
+        "local": {
+          "abuse_score": "=DEFAULT(lookup_abuseipdb.body.<abuse-confidence-path>, 0)",
+          "vt_malicious": "=DEFAULT(lookup_virustotal.body.<malicious-count-path>, 0)",
+          "score": "=MAX(LOCAL.abuse_score, LOCAL.vt_malicious * 10)"
+        },
+        "payload": {
+          "score": "<<LOCAL.score>>",
+          "verdict": "=IF(LOCAL.score >= 70, \"malicious\", IF(LOCAL.score >= 30, \"suspicious\", \"clean\"))",
+          "sources": ["virustotal", "abuseipdb"],
+          "summary": "=CONCAT(normalize.ip, \" is \", IF(LOCAL.score >= 70, \"malicious\", IF(LOCAL.score >= 30, \"suspicious\", \"clean\")), \" (score \", LOCAL.score, \") per VirusTotal and AbuseIPDB.\")"
+        }
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "VERIFY:records-action",
+      "name": "write_cache",
+      "disabled": false,
+      "description": "SKELETON #12 — Records action: create an ioc_cache record with a 24-hour TTL. VERIFY the Records action export type.",
+      "guid": "00000000000000000000000000000013",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "record_type": "ioc_cache",
+        "operation": "create",
+        "fields": {
+          "ip": "<<normalize.ip>>",
+          "verdict": "<<verdict.verdict>>",
+          "score": "<<verdict.score>>",
+          "sources": "<<verdict.sources>>",
+          "summary": "<<verdict.summary>>",
+          "requester": "<<normalize.requester>>",
+          "expires_at": "=DATE(NOW() + 86400)"
+        }
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::EventTransformationAgent",
+      "name": "result",
+      "disabled": false,
+      "description": "SKELETON #13 — THE EXIT. Exactly four fields; DEFAULT() picks the lookup path or the cache path.",
+      "guid": "00000000000000000000000000000014",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "mode": "message_only",
+        "loop": false,
+        "payload": {
+          "verdict": "=DEFAULT(verdict.verdict, FIRST(check_cache.records).verdict)",
+          "score": "=DEFAULT(verdict.score, FIRST(check_cache.records).score)",
+          "sources": "=DEFAULT(verdict.sources, [\"cache\"])",
+          "summary": "=DEFAULT(verdict.summary, FIRST(check_cache.records).summary)"
+        }
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::EventTransformationAgent",
+      "name": "refused",
+      "disabled": false,
+      "description": "SKELETON #14 — exit for protected ranges; no lookup ever ran.",
+      "guid": "00000000000000000000000000000015",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "mode": "message_only",
+        "loop": false,
+        "payload": {
+          "status": "refused",
+          "reason": "protected range",
+          "ip": "<<normalize.ip>>"
+        }
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    },
+    {
+      "type": "Agents::EventTransformationAgent",
+      "name": "error",
+      "disabled": false,
+      "description": "SKELETON #15 — exit for every failure branch. error_category from the upstream status; retryable only for rate_limit and upstream_5xx. VERIFY how failure-path links from HTTP Request actions are represented in the export.",
+      "guid": "00000000000000000000000000000016",
+      "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+      "options": {
+        "mode": "message_only",
+        "loop": false,
+        "local": {
+          "status": "=DEFAULT(lookup_abuseipdb.status, DEFAULT(lookup_virustotal.status, 0))",
+          "invalid": "=DEFAULT(is_invalid_input, null) != null"
+        },
+        "payload": {
+          "status": "error",
+          "error_category": "=IF(LOCAL.invalid, \"validation\", IF(LOCAL.status = 401 OR LOCAL.status = 403, \"auth\", IF(LOCAL.status = 429, \"rate_limit\", IF(LOCAL.status >= 500, \"upstream_5xx\", \"unknown\"))))",
+          "retryable": "=LOCAL.status = 429 OR LOCAL.status >= 500",
+          "message": "=IF(LOCAL.invalid, \"ip is not a well-formed IPv4 address\", CONCAT(\"lookup failed with HTTP \", LOCAL.status))"
+        }
+      },
+      "schedule": null,
+      "reporting": { "time_saved_value": 0, "time_saved_unit": "minutes" },
+      "monitoring": { "monitor_all_events": false, "monitor_failures": false, "monitor_no_events_emitted": null },
+      "template": { "created_from_template_guid": null, "created_from_template_version": null, "template_tags": [] },
+      "width": null
+    }
+  ],
+  "links": [
+    { "source": 0, "receiver": 1 },
+    { "source": 1, "receiver": 2 },
+    { "source": 1, "receiver": 3 },
+    { "source": 3, "receiver": 15 },
+    { "source": 2, "receiver": 4 },
+    { "source": 2, "receiver": 5 },
+    { "source": 4, "receiver": 14 },
+    { "source": 5, "receiver": 6 },
+    { "source": 6, "receiver": 7 },
+    { "source": 6, "receiver": 8 },
+    { "source": 7, "receiver": 13 },
+    { "source": 8, "receiver": 9 },
+    { "source": 9, "receiver": 10 },
+    { "source": 10, "receiver": 11 },
+    { "source": 11, "receiver": 12 },
+    { "source": 12, "receiver": 13 },
+    { "source": 9, "receiver": 15 },
+    { "source": 10, "receiver": 15 },
+    { "source": 12, "receiver": 15 }
+  ],
+  "diagram_layout": "{}"
+}

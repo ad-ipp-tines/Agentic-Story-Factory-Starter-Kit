@@ -1,0 +1,25 @@
+{
+  "enabled": true,
+  "environment": "prod",
+  "sweep_minutes": 15,
+  "error_threshold_per_window": 3,
+  "overlap_ratio": 0.8,
+  "watchdog_multiplier": 2,
+  "credit_budget_daily": {
+    "default": 200,
+    "per_story": {}
+  },
+  "credit_alert_pct": [80, 95],
+  "auto_apply_in_dev": false,
+  "auto_apply_in_prod": false,
+  "max_proposals_per_day": 5,
+  "agent_runs_per_day_max": 96,
+  "agent_credits_per_run_max": 3,
+  "stale_lock_minutes": 30,
+  "proposal_expiry_hours": 24,
+  "ops_lock_resource_id": 0,
+  "never_touch": {
+    "story_ids": [],
+    "name_patterns": ["^\\[OPS\\]", "^\\[KIT\\]"]
+  }
+}

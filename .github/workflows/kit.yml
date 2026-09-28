@@ -1,0 +1,209 @@
+# .github/workflows/kit.yml — the starter kit's own checks and the day-1 config PRs (REPO-DESIGN.md §7.1, §15.4, §15.6;
+# kit/tenant/README.md, kit/bundle/README.md).
+#
+# bundle-fresh   on EVERY pull request (no paths filter) and on dispatch:
+#                  ./scripts/kit tracker-json --check        the tracker, the field map and the enums agree
+#                  ./scripts/kit bundle --check              fail if kit/bundle/kit-bundle.json or a generated
+#                                                            kit/resources/*.example.json differs from its sources
+#                The bundle depends on more than any short path list: its `generated_from` (tines-skills/*/SKILL.md,
+#                kit/records/, kit/catalog/, kit/tracker/milestones.yaml, sdlc/lifecycle/state-machine.yaml,
+#                policies/cost-ceilings.yml, stories/ops-story-health-monitor/resources/*.example.json, the dashboard
+#                and the App) and, in the template repository (no kit/tenant/config.yaml yet), the file manifest — so
+#                adding or removing ANY file makes it stale. sdlc.yml's bundle_fresh enforces the same thing as the
+#                required check. Regenerate with ./scripts/kit bundle in the same PR. No secrets, no network.
+# apply-config   on a push to main touching kit/tenant/config.yaml or kit/tenant/setup-report.json — the two files
+#                [KIT] 00 commits on day 1 (A16, A29) — and on dispatch (run it once by hand after provisioning if
+#                Actions was not enabled yet, K12):
+#                  ./scripts/kit apply-config --targets manifest,never-touch,ceilings   → PR from kit/config-<run_id>
+#                  ./scripts/kit apply-config --targets tracker                         → PR from tracker/config-<run_id>
+#                The first is the setup-report PR: it commits kit_story_id into stories/_manifest.yaml
+#                (kit-factory.prod.story_id) and policies/never-touch.yml (story_ids), so ship.yml changes the imported
+#                kit through versionReplace and guard-mcp.sh protects it by id. It also re-runs ./scripts/kit bundle,
+#                because the bundle's kit_config value follows kit/tenant/config.yaml (committed straight to main by
+#                A16): MERGE IT FIRST, or bundle_fresh fails on every other PR until it lands. The tracker PR is separate
+#                because the touch sets allow kit/tracker/** only on tracker/* branches. apply-config fills
+#                placeholders only.
+#                Both PRs are opened with the tracker-bot GitHub App token, never GITHUB_TOKEN (GitHub starts no
+#                pull_request workflows for a PR opened with it, so sdlc.yml would never report).
+# release        on dispatch only (job = release) — the §15.6 maintainer release check, run before is_template is set:
+#                  ./scripts/kit bundle --check
+#                  ./scripts/sdlc check --release            fails while stories/kit-factory/story.json or
+#                                                            kit/dashboard/dashboards/story-factory.dashboard.json still
+#                                                            carries the SKELETON label, or template_hygiene fails
+#
+# Secrets (GitHub environment `tracker`): TRACKER_BOT_APP_ID, TRACKER_BOT_PRIVATE_KEY — the apply-config job only.
+
+name: kit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "kit/tenant/config.yaml"
+      - "kit/tenant/setup-report.json"
+  pull_request: # no paths filter: see bundle-fresh above
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "apply-config (the day-1 config PRs), bundle-check, or release (the §15.6 release check)"
+        required: true
+        default: apply-config
+        type: choice
+        options: [apply-config, bundle-check, release]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kit-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  bundle-fresh:
+    name: bundle is fresh
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'bundle-check')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+      - name: Tracker, field map and enums agree
+        run: ./scripts/kit tracker-json --check
+      - name: kit/bundle/kit-bundle.json and the generated examples match their sources
+        run: |
+          if ! ./scripts/kit bundle --check; then
+            echo "::error::run ./scripts/kit bundle and commit kit/bundle/kit-bundle.json and kit/resources/*.example.json in this PR"
+            exit 1
+          fi
+
+  apply-config:
+    name: day-1 config PRs
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'apply-config'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: tracker
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # main's revs for the tracker PR
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Is this a provisioned repository?
+        id: gate
+        run: |
+          if [ -f kit/tenant/config.yaml ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::kit/tenant/config.yaml does not exist (the template repository, or not provisioned yet); nothing to apply"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Plan both PRs
+        id: plan
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          ./scripts/kit apply-config --targets manifest,never-touch,ceilings --dry-run --summary "$RUNNER_TEMP/plan-config.json"
+          ./scripts/kit apply-config --targets tracker --dry-run --summary "$RUNNER_TEMP/plan-tracker.json"
+          count() { python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["changes"]))' "$1"; }
+          config=$(count "$RUNNER_TEMP/plan-config.json")
+          if ! ./scripts/kit bundle --check > /dev/null; then config=$((config + 1)); fi   # the bundle follows config.yaml
+          echo "config=${config}" >> "$GITHUB_OUTPUT"
+          echo "tracker=$(count "$RUNNER_TEMP/plan-tracker.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Mint the tracker-bot token
+        id: bot
+        if: steps.gate.outputs.skip != 'true' && (steps.plan.outputs.config != '0' || steps.plan.outputs.tracker != '0')
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TRACKER_BOT_APP_ID }}
+          private-key: ${{ secrets.TRACKER_BOT_PRIVATE_KEY }}
+
+      - name: Open the PRs
+        if: steps.gate.outputs.skip != 'true' && (steps.plan.outputs.config != '0' || steps.plan.outputs.tracker != '0')
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          base_sha=$(git rev-parse HEAD)
+          open_pr() {  # $1 branch  $2 targets  $3 paths to add  $4 title  $5 label
+            local branch="$1" targets="$2" paths="$3" title="$4" label="$5"
+            git switch --quiet --detach "$base_sha"
+            git switch --quiet -c "$branch"
+            ./scripts/kit apply-config --targets "$targets" --summary "$RUNNER_TEMP/${label}.json" --pr-body "$RUNNER_TEMP/${label}.md"
+            if [ "$label" = "kit-config" ]; then
+              # the bundle's kit_config value follows kit/tenant/config.yaml, which A16 committed straight to main:
+              # refresh it here so bundle_fresh passes again once this PR merges (merge it before the tracker PRs)
+              ./scripts/kit bundle
+            fi
+            # shellcheck disable=SC2086
+            git add -- $paths
+            if git diff --cached --quiet; then
+              echo "::notice::${targets}: nothing to change"
+              return 0
+            fi
+            git commit --quiet -m "$title"
+            git push --quiet "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+            # the kit-config and tracker labels are created by hand (the [BY HAND] list); without one the PR opens unlabelled
+            url=$(gh pr create --base main --head "$branch" --label "$label" --title "$title" --body-file "$RUNNER_TEMP/${label}.md" < /dev/null \
+                  || gh pr create --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/${label}.md" < /dev/null)
+            echo "- ${title}: ${url}" >> "$GITHUB_STEP_SUMMARY"
+          }
+          echo "## Tenant config PRs" >> "$GITHUB_STEP_SUMMARY"
+          open_pr "kit/config-${GITHUB_RUN_ID}" "manifest,never-touch,ceilings" \
+                  "stories/_manifest.yaml policies/never-touch.yml policies/cost-ceilings.yml kit/bundle kit/resources" \
+                  "kit: apply the tenant config and the setup report" "kit-config"
+          open_pr "tracker/config-${GITHUB_RUN_ID}" "tracker" \
+                  "kit/tracker sdlc/work" \
+                  "tracker: dates and providers from the tenant config" "tracker"
+
+  release:
+    name: maintainer release check (§15.6)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+      - name: The bundle is fresh
+        run: ./scripts/kit bundle --check
+      - name: No SKELETON left, template hygiene (./scripts/sdlc check --release)
+        run: |
+          if [ ! -x scripts/sdlc ]; then
+            echo "::error::scripts/sdlc is missing; the release check cannot run"
+            exit 1
+          fi
+          ./scripts/sdlc check --release
+      - name: Summary
+        if: success()
+        run: |
+          {
+            echo "## Release check passed"
+            echo
+            echo "The template may be published only once **K8** (import keeps Page URL identifiers and Webhook paths and secrets) is also confirmed; then its owner sets \`is_template: true\`."
+          } >> "$GITHUB_STEP_SUMMARY"

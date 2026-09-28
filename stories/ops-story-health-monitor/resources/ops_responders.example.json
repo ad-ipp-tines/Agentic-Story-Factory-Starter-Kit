@@ -1,0 +1,7 @@
+{
+  "alert_rule": ["ops-role-1@example.invalid"],
+  "credit_action": ["ops-role-1@example.invalid", "ops-role-2@example.invalid"],
+  "disable": ["ops-role-1@example.invalid", "ops-role-2@example.invalid"],
+  "two_required_for": ["disable", "credit_action"],
+  "proposal_pr": ["ops-role-1@example.invalid"]
+}

@@ -1,0 +1,347 @@
+# tests/expectations.yaml — [KIT] 00 · Run the story factory. Expectations per section.
+#
+# Spec: ../DESIGN.md (REPO-DESIGN.md §7), ../sections/*.md. The top-level block is the happy path of sections A and F,
+# posted as tests/sample-event.json to the dev-only Webhook `kickoff_test`; `variants` below cover every section.
+# The build skill posts the event to the entry action and reads the run (GET /api/v1/stories/{id}/runs, /runs/{guid});
+# `./scripts/sdlc eval-run kit-factory` posts to the dev copy's Webhooks (URL form K37). Run everything in the DEV team only.
+#
+# Preconditions in the DEV team, set [BY HAND] (never committed values):
+#   - credentials tines_api_kit (a dev-team Editor key), github_factory (a token for a SCRATCH GitHub organisation),
+#     tines_api_readonly
+#   - a kit_config Resource with environment: "dev", the real tenant_host, teams.dev / teams.prod = the dev team's own name
+#     and id (in the dev copy the dev team is its own ops team), github.org = the scratch organisation, github.template_repo =
+#     the template under test (shape: kit/resources/kit_config.example.json). kickoff_test resolves the sample's <…>
+#     placeholders from it, so tests/sample-event.json stays placeholder-only.
+#   - no kit_state Resource (or an empty {} one if K10 says a missing Resource errors) for a fresh run
+# Side effects of the happy path: a real private repository in the scratch organisation, Skills, three Record types,
+# Resources and Records in the dev team. Deleting them afterwards is a person's decision, made in GitHub and in Tines.
+# The refusal variants (input_with_token, community_edition, one_licensed_team, already_provisioned) make no GitHub or
+# Records call and are safe to run at any time.
+
+entry_action: kickoff_test
+expected_actions_fired_min: 60               # A1b … A32 on the template path with Records, no Apps, a Tines-provided model
+must_fire:
+  - kickoff_test
+  - is_dev_kickoff_test
+  - normalize
+  - is_valid_input
+  - is_standard_plan
+  - is_new_run
+  - lookup_teams
+  - resolve_teams
+  - has_ops_team
+  - has_no_ledger
+  - create_kit_state
+  - store_self_id
+  - ledger
+  - list_ai_providers
+  - check_provider
+  - probe_template
+  - is_template_readable
+  - generate_repo
+  - is_generated
+  - wait_for_repo
+  - store_repo
+  - read_bundle
+  - parse_bundle
+  - write_config
+  - each_skill
+  - skills_done
+  - ent_records
+  - create_record_type
+  - record_types_done
+  - resource_plan
+  - create_resource
+  - resources_done
+  - claim_seed
+  - is_seed_claimed
+  - seed_backlog
+  - seed_milestones
+  - is_dashboard_skeleton                     # the release ships the dashboard; until then A23 is skipped and reported
+  - has_no_apps
+  - ent_ai_agent_action
+  - llm_probe
+  - llm_probe_ok
+  - llm_tool_probe
+  - tool_probe_ok
+  - probe_verdict
+  - lookup_kit_story
+  - compose_report
+  - write_report
+  - finish_kit_state
+  - setup_report
+  - email_report
+no_error_logs_on:
+  - kickoff_test
+  - normalize
+  - lookup_teams
+  - create_kit_state
+  - list_ai_providers
+  - probe_template
+  - generate_repo
+  - wait_for_repo                             # 404 retries while the repository becomes readable are expected; no level-4 log at the end
+  - read_bundle
+  - read_config_sha                           # 404 excluded: a first run has no config file
+  - write_config
+  - get_skill                                 # 404 excluded: new skills are expected
+  - create_record_type
+  - create_resource
+  - claim_seed
+  - seed_backlog
+  - seed_milestones
+  - llm_probe
+  - llm_tool_probe
+  - compose_report
+  - write_report
+  - finish_kit_state
+result_action: compose_report
+result_fields:                                # the keys compose_report must emit
+  - report
+  - steps_csv
+report_fields:                                # the keys of compose_report.report (= kit/tenant/setup-report.json)
+  - status
+  - repo_url
+  - kit_story_id
+  - steps
+  - provider
+  - created
+  - by_hand
+result_field_values:
+  report.status: partial                      # ok is impossible until the §15.6 release: the dashboard step is skipped
+  report.provider.status: ok
+must_not_fire:
+  - is_invalid_input
+  - input_error
+  - is_community
+  - community_path
+  - already_provisioned
+  - already_provisioned_notice
+  - is_missing_ops_team
+  - missing_team_notice
+  - ledger_error
+  - step_failed
+  - is_template_unreadable
+  - is_name_taken
+  - is_generate_refused                       # the template path is expected; the fallback has its own manual check
+  - skill_conflict                            # a fresh dev team has no skill of the same name
+  - is_already_seeded
+  - llm_probe_failed
+  - tool_probe_failed
+ledger_after:                                 # read RESOURCE kit_state after the run
+  status: complete
+  records_seeded: "<the run guid>"
+  step_repo: { status: ok }
+  step_seed: { status: ok }
+records_after:
+  sdlc_backlog: 4                             # the three picks (example-enrich-ip, ops-error-router, triage-suspicious-login-alerts) + ops-story-health-monitor
+  sdlc_milestones: 3
+  sdlc_backlog_every_row: { phase: intake, pending_repo_sync: true, specialist_due: brief-writer, specialist_status: pending }
+  always_seeded_rev: 1                        # example-enrich-ip and ops-story-health-monitor exist in the template's backlog at rev 1
+repository_after:
+  - kit/tenant/config.yaml                    # JSON; no tenant host, no email
+  - kit/tenant/setup-report.json              # no secret, no webhook URL, no email
+never_in_outputs:                             # the report, the Page, the email and both commits
+  - the tenant host in kit/tenant/config.yaml
+  - any approver or submitter email
+  - any token, key or webhook URL
+
+variants:
+
+  # ---- Section A: refusals (no GitHub or Records call) ----
+  input_with_token:
+    entry_action: kickoff_test
+    event: "tests/sample-event.json with company_name set to \"ghp_not-a-token\" (matches A3's prefix list, not the repository's secret patterns)"
+    must_fire: [kickoff_test, is_dev_kickoff_test, normalize, is_invalid_input, input_error, email_report]
+    must_not_fire: [is_valid_input, lookup_teams, create_kit_state, probe_template, generate_repo]
+    result_action: input_error
+    result_field_values: { status: error, error_category: input, retryable: false }
+    note: "input_error.message names the failed check and never echoes the value"
+  invalid_host:
+    entry_action: kickoff_test
+    event: "tests/sample-event.json with tines_tenant_host set to \"example.invalid\""
+    must_fire: [normalize, is_invalid_input, input_error, email_report]
+    must_not_fire: [lookup_teams]
+  no_consent:
+    entry_action: kickoff_test
+    event: "tests/sample-event.json with consent set to false"
+    must_fire: [is_invalid_input, input_error]
+    must_not_fire: [lookup_teams]
+  community_edition:
+    entry_action: kickoff_test
+    event: "tests/sample-event.json with plan_tier set to \"community_edition\""
+    must_fire: [is_valid_input, is_community, community_path, email_report]
+    must_not_fire: [is_standard_plan, lookup_teams, create_kit_state]
+  one_licensed_team:
+    entry_action: kickoff_test
+    event: "tests/sample-event.json with licensed_teams set to 1"
+    must_fire: [is_community, community_path]
+    must_not_fire: [lookup_teams]
+  already_provisioned:
+    precondition: { resource: kit_state, set: { status: complete, repo: "<org>/<repo>" } }
+    entry_action: kickoff_test
+    event: same as tests/sample-event.json
+    must_fire: [is_standard_plan, already_provisioned, already_provisioned_notice, email_report]
+    must_not_fire: [is_new_run, lookup_teams, generate_repo, claim_seed]
+  resume_after_partial_run:
+    precondition: { resource: kit_state, set: { status: running, self_id: "<its own id>", records_seeded: "<an earlier run guid>", repo: "<org>/<repo>" } }
+    entry_action: kickoff_test
+    event: same as tests/sample-event.json
+    must_fire: [has_ledger, resume_ledger, repo_exists, is_resumed_repo, claim_seed, is_already_seeded]
+    must_not_fire: [create_kit_state, seed_backlog, is_name_taken]
+    note: "claim_seed answers 422 (excluded from errors): the rows are never seeded twice"
+
+  # ---- Section F ----
+  ai_not_entitled:
+    precondition: "a fresh run (no kit_state)"
+    entry_action: kickoff_test
+    event: "tests/sample-event.json with ent_ai_agent_action set to false"
+    must_fire: [has_no_ai_agent_action, probe_not_entitled, record_probe, compose_report]
+    must_not_fire: [llm_probe, llm_tool_probe]
+    result_field_values: { report.provider.status: not_entitled }
+    note: "and every seeded row has specialist_due none, specialist_status idle"
+
+  # ---- Section B: tracker sync in ----
+  tracker_sync_create:
+    precondition: { resource: sdlc_limits, set: { enabled: true }, records: "the three types exist (a completed kickoff run); no sdlc_backlog rows for the three keys" }
+    entry_action: tracker_sync_in
+    event_file: tests/samples/tracker-sync.sample.json
+    must_fire: [tracker_sync_in, sync_kill_switch, normalize_payload, is_valid_payload, acquire_sync_lock, has_sync_lock, has_records_sync, list_backlog, plan_upserts, has_upserts, each_upsert, is_create_row, sync_create_row, has_transition, log_transition, upserts_done, sync_list_milestones, plan_milestone_upserts, release_sync_lock]
+    must_not_fire: [is_locked, sync_busy, is_invalid_payload, sync_failed, update_tracker_view]
+    fired_counts: { sync_create_row: 3, log_transition: 3 }
+    lock_released: { resource: sdlc_sync_lock, expected_value: { lock: free } }
+    note: "each created row dispatches to section D; with guards_confirmed false nothing runs there"
+  tracker_sync_repeat:
+    precondition: "tracker_sync_create has run"
+    entry_action: tracker_sync_in
+    event_file: tests/samples/tracker-sync.sample.json
+    must_fire: [acquire_sync_lock, list_backlog, plan_upserts, has_no_upserts, release_sync_lock]
+    must_not_fire: [sync_create_row, sync_update_row, log_transition]
+    note: "equal revs are a noop, and equal revs never clear a pending change"
+  tracker_sync_locked:
+    precondition: { resource: sdlc_sync_lock, set: { lock: "00000000-0000-0000-0000-000000000000" } }
+    entry_action: tracker_sync_in
+    event_file: tests/samples/tracker-sync.sample.json
+    must_fire: [acquire_sync_lock, is_locked, sync_busy]
+    must_not_fire: [list_backlog, release_sync_lock, sync_failed]
+    note: "the CAS answers 422, excluded from error logging; reset the lock to free afterwards"
+  tracker_sync_invalid:
+    entry_action: tracker_sync_in
+    event: "tests/samples/tracker-sync.sample.json with entries[0].story_key set to \"Example-Enrich-IP\""
+    must_fire: [normalize_payload, is_invalid_payload, sync_rejected]
+    must_not_fire: [acquire_sync_lock]
+  tracker_sync_kill_switch_off:
+    precondition: { resource: sdlc_limits, set: { enabled: false } }
+    entry_action: tracker_sync_in
+    event_file: tests/samples/tracker-sync.sample.json
+    must_fire: [tracker_sync_in]
+    must_not_fire: [sync_kill_switch, normalize_payload, acquire_sync_lock]
+
+  # ---- Section C: App endpoints (the Pages cannot be posted; see manual_checks) ----
+  app_add_use_case_happy:
+    precondition: "Apps entitled in the dev copy (or post to the Webhook directly)"
+    entry_action: app_add_use_case
+    event: { title: "Triage suspicious login alerts", use_case: "Untrusted free text: what happens today and what should happen.", owner_role: "security-automation", target_date: "2026-11-02T00:00:00Z", library_seed_id: null, mode_hint: "unknown" }
+    must_fire: [app_add_use_case, normalize_use_case, is_valid_use_case, list_keys_for_use_case, assign_use_case_key, use_case_create_row, use_case_log_event, is_app_use_case, app_add_use_case_result, dispatch_in]
+    must_not_fire: [use_case_refused, app_add_use_case_error]
+    result_action: app_add_use_case_result
+    result_field_values: { status: ok, phase: intake, provisional: true }
+    record_after: { sdlc_backlog: { phase: intake, mode: none, pending_repo_sync: true, pending_base_rev: 0, rev: 0 } }
+  app_add_use_case_token:
+    entry_action: app_add_use_case
+    event: { title: "Rotate a key", use_case: "paste the value xoxb-x here", owner_role: "platform", target_date: "", library_seed_id: null, mode_hint: "none" }
+    must_fire: [normalize_use_case, is_invalid_use_case, use_case_refused, app_add_use_case_error]
+    must_not_fire: [use_case_create_row]
+    result_field_values: { status: refused }
+  app_add_use_case_unknown_seed:
+    entry_action: app_add_use_case
+    event: { title: "Something new", use_case: "text", owner_role: "platform", target_date: "", library_seed_id: 7777777, mode_hint: "none" }
+    must_fire: [is_invalid_use_case, use_case_refused]
+    must_not_fire: [use_case_create_row]
+  app_gate_decision_refused:
+    entry_action: app_gate_decision
+    event: { story_key: "example-enrich-ip", gate: "G0", decision: "build", note: "" }
+    must_fire: [app_gate_decision, gate_identity, is_not_approver, gate_refused, app_gate_decision_error]
+    must_not_fire: [gate_update_row, gate_log_event]
+    result_field_values: { status: refused, reason: "caller identity unavailable" }
+    note: "until K18 confirms the endpoint receives the viewer's identity, every call is refused"
+  app_costs:
+    entry_action: app_costs
+    event: { period: month_to_date, group_by: story }
+    must_fire: [app_costs, costs_window, get_app_costs, app_costs_result]
+    must_not_fire: [app_costs_error]
+    result_fields: [status, from, to, rows]
+
+  # ---- Section D: the runtime agents through specialist_test (dev only) ----
+  specialist_test_brief_writer:
+    precondition: "the brief_writer action is built with its instructions, schema, pinned model and skill"
+    entry_action: specialist_test
+    event_ref: sdlc/evals/agents/runtime-brief-writer.cases.yaml#variants.ip-enrichment
+    must_fire: [specialist_test, is_dev_specialist_test, is_brief_writer_test, brief_context, brief_writer, brief_ok, filter_seed_ids, render_brief, is_test_brief]
+    must_not_fire: [mark_running, save_brief, brief_log_run, notify_g0, count_runs_today]
+    note: "a test stops after the agent and its Trigger (plus the two transforms); nothing is written"
+  specialist_test_planner:
+    entry_action: specialist_test
+    event_ref: sdlc/evals/agents/runtime-planner.cases.yaml#variants.wip-and-milestone
+    must_fire: [specialist_test, is_planner_test, backlog_snapshot, planner, planner_ok, is_test_plan]
+    must_not_fire: [claim_planner, list_planner_rows, save_proposals, planner_log_run]
+  specialist_test_retro_writer:
+    entry_action: specialist_test
+    event_ref: sdlc/evals/agents/runtime-retro-writer.cases.yaml#variants.repeated-rate-limit
+    must_fire: [specialist_test, is_retro_writer_test, ops_evidence, retro_writer, retro_ok, render_retro, is_test_retro]
+    must_not_fire: [retro_mark_running, list_ops_findings, save_retro, retro_log_run]
+  specialist_test_in_prod:
+    precondition: { resource: kit_config, set: { environment: prod } }
+    entry_action: specialist_test
+    event_ref: sdlc/evals/agents/runtime-planner.cases.yaml#variants.wip-and-milestone
+    must_fire: [specialist_test]
+    must_not_fire: [is_dev_specialist_test, planner]
+    note: "restore environment: dev afterwards"
+  dispatch_guards_off:
+    precondition: { resource: sdlc_limits, set: { enabled: true, guards_confirmed: false } }
+    trigger: "tracker_sync_create (a new intake row dispatches to D)"
+    must_fire: [dispatch_in, each_dispatch]
+    must_not_fire: [dispatch_kill_switch, count_runs_today, brief_writer, planner]
+  dispatch_over_cap:
+    precondition: { resource: sdlc_limits, set: { enabled: true, guards_confirmed: true, "runtime.brief_writer.runs_per_day_max": 0 } }
+    trigger: "app_add_use_case_happy"
+    must_fire: [dispatch_kill_switch, is_agent_dispatch, count_runs_today, over_cap, is_cap_news, log_cap_reached]
+    must_not_fire: [under_cap, brief_writer]
+
+  # ---- Section E: the outbox (response-enabled) ----
+  outbox_pull:
+    precondition: "a completed kickoff run: the seeded rows are pending with outbox_seq 1 and acked_seq 0; day-1 milestone pending"
+    entry_action: tracker_outbox
+    event: { op: pull }
+    must_fire: [tracker_outbox, route_op_pull, list_pending, list_pending_milestones, list_outbox_events, shape_outbox]
+    must_not_fire: [route_op_ack, route_op_snapshot, outbox_error]
+    response_shape: tests/samples/outbox-response.sample.json     # items[{key, base_rev, outbox_seq, changes, brief_md?, retro_md?, source}], milestones[], events[]
+    response_never_contains: [actor_ref, input_tokens, output_tokens, "@"]
+    note: "./scripts/kit tracker-fold --input <the saved answer> --dry-run folds it without writing"
+  outbox_ack:
+    precondition: "outbox_pull has run"
+    entry_action: tracker_outbox
+    event: { op: ack, items: [ { key: example-enrich-ip, outbox_seq: 1 } ] }
+    must_fire: [route_op_ack, list_for_ack, ack_plan, has_acks, each_ack, set_acked, acks_done, ack_exit]
+    record_after: { sdlc_backlog: { story_key: example-enrich-ip, acked_seq: 1, pending_repo_sync: true } }
+    note: "a second pull omits the item; pending clears only when Flow 1 brings a rev above pending_base_rev"
+  outbox_snapshot:
+    precondition: "one pending row whose last_transition_at is older than pending_reset_hours, and no open PR for it"
+    entry_action: tracker_outbox
+    event: { op: snapshot, open_pr_keys: [] }
+    must_fire: [route_op_snapshot, list_snapshot_rows, reset_plan, has_resets, each_reset, reset_abandoned, resets_done, list_all, list_all_milestones, snapshot_exit]
+    result_fields: [rows, milestones, hashes, reset]
+  outbox_unknown_op:
+    entry_action: tracker_outbox
+    event: { op: push }
+    must_fire: [route_op_unknown, outbox_error]
+    result_field_values: { status: error, error_category: validation }
+
+# Checked by a person in the dev copy (Pages cannot be posted by a script).
+manual_checks:
+  - "kickoff: every element of pages/kickoff.md exists with its body key; the Tunnel warning shows for a local_ choice without ent_tunnel; no Password element"
+  - "setup_report: the Table has one row per step_* key; the Button opens tracker_home when there is no App; no email, token or webhook URL on the Page"
+  - "tracker_home: each of view, add, gate, milestones reaches exactly one branch; view without Records makes no Records call"
+  - "tracker_view: one Table row per story; the Chart counts by phase; Back returns to tracker_home"
+  - "add_use_case: a valid use case creates one intake row with pending_repo_sync true; a token-shaped text creates nothing and the submitter is emailed the reason"
+  - "gate_decision: an address not in sdlc_approvers[G0] is refused; a listed approver's G0 build moves the row to discover with pending_repo_sync true, pending_base_rev = rev, outbox_seq + 1, and an sdlc_events gate_decision whose actor is G0-approver and whose actor_ref holds the email"
+  - "fallback copy: with a template that is not marked as a template, generate_repo answers 403/404 and the Contents-API fallback copies the files (slow)"

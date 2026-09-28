@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentic-story-factory/kit/tracker/milestones.schema.json",
+  "title": "The onboarding milestones (kit/tracker/milestones.yaml)",
+  "description": "The day-1, week-1 and week-4 milestones of REPO-DESIGN.md §11.1, mirrored into the sdlc_milestones Record type (§8.1) and seeded in Tines by [KIT] 00 A22. kit/ONBOARDING.md is the runbook that mirrors this file. Validated by sdlc.yml and by ./scripts/kit before any write; keys map to Record fields in kit/tracker/field-map.yaml.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "milestones"],
+  "properties": {
+    "version": { "const": 1 },
+    "milestones": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/milestone" }
+    }
+  },
+  "$defs": {
+    "milestone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "criteria", "status", "due_offset_days", "due_date", "evidence_ref", "owner", "rev"],
+      "properties": {
+        "id": { "enum": ["day-1", "week-1", "week-4"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Done-when items; the Record holds them as Markdown bullet lines (ARTIFACT)."
+        },
+        "status": { "enum": ["not_started", "in_progress", "done", "blocked"] },
+        "due_offset_days": { "type": "integer", "minimum": 0, "description": "Days after provisioning (kit/tenant/config.yaml provisioned_at)." },
+        "due_date": {
+          "type": "string",
+          "pattern": "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+          "description": "UTC with Z; empty in the template until provisioning (A22 in Tines, or ./scripts/kit apply-config on the Community path)."
+        },
+        "evidence_ref": { "type": "string", "maxLength": 512, "description": "A repo path, PR number or Record id — never a URL carrying a secret." },
+        "owner": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^@\\s][^@]*$", "description": "A role, never a person." },
+        "rev": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

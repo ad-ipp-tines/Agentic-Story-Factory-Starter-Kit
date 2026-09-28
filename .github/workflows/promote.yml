@@ -1,0 +1,447 @@
+# .github/workflows/promote.yml — OPTIONAL: promote a change request ONLY after a person approved it in Tines
+# (DESIGN.md §2.3 row 2, §3.4 "promote.yml", §4.2 step 5; docs/02-workflows.md §2.7).
+#
+# The default is still a person: the named approver approves AND pushes in Tines, and this workflow never runs.
+# A team that wants the push to happen from CI (so the release is tagged with its commit) has a human dispatch
+# this workflow with the ids ship.yml printed. Inside the GitHub environment `production`:
+#
+#   GET  /api/v1/stories/{id}/change_request/view?draft_id=     status must be APPROVED — else fail, nothing sent
+#   POST /api/v1/stories/{id}/change_request/promote            {change_request_id, delete_draft: true}
+#   POST /api/v1/stories/{id}/versions                          {name: "release <sha7>"}
+#
+# It NEVER sends bypass_approval: BREAK_GLASS is forced empty in this job, and scripts/promote_change_request.py
+# refuses --bypass-approval anywhere but rollback.yml's break-glass-promote job. A PENDING, REJECTED or CANCELLED
+# request is never promoted by any pipeline. No key in CI can approve — approval happens in Tines, by a person.
+#
+# Identity: CI-prod — the TEAM-scoped key named by stories/_manifest.yaml `environments.<env>.api_key_secret`
+# (Editor role in the prod team: may promote an APPROVED request, cannot approve), stored as a GitHub ENVIRONMENT
+# secret on `production`. Set that environment's deployment branches to `main` only; the plan job also refuses
+# any other ref for prod.
+#
+#   TINES_TENANT      host prefix only
+#   TINES_API_KEY_*   the key named in the manifest for the environment
+#   OPS_ROUTER_URL    optional — the ops-error-router webhook (carries a secret); the promotion is posted to it
+
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "story slug (as in stories/_manifest.yaml)"
+        required: true
+        type: string
+      change_request_id:
+        description: "the change request ship.yml or rollback.yml opened (from the job summary / commit comment)"
+        required: true
+        type: string
+      draft_id:
+        description: "the draft id printed by ship.yml / rollback.yml (in the job summary — not the git-<sha> / rollback-<target> name)"
+        required: true
+        type: string
+      env:
+        description: "environment from stories/_manifest.yaml"
+        required: true
+        default: prod
+        type: choice
+        options: [prod, staging, dev]
+      release_sha:
+        description: "commit being released, for the 'release <sha7>' version (default: this run's commit)"
+        required: false
+        type: string
+      evidence_only:
+        description: "G5 evidence ONLY (REPO-DESIGN.md §3.3 row 20): record a decision an approver made in Tines (approved and pushed there, or rejected) — nothing is promoted. For a first ship's G5a rejection, type 0 for the two ids."
+        required: false
+        default: false
+        type: boolean
+      rejection_note:
+        description: "evidence_only: the approver's reason when the release was REJECTED (a sentence, as a role would state it; no names or emails). Empty = approved and pushed."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-${{ github.event.inputs.slug }}
+  cancel-in-progress: false # never cancel a half-finished promotion
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  plan:
+    name: plan (validate inputs against the manifest)
+    # evidence_only (G5 evidence of a decision made in Tines) skips the plan, and with it the promote job: nothing is promoted
+    if: ${{ !inputs.evidence_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      target_env: ${{ steps.plan.outputs.target_env }}
+      github_environment: ${{ steps.plan.outputs.github_environment }}
+      key_secret: ${{ steps.plan.outputs.key_secret }}
+      release_sha: ${{ steps.plan.outputs.release_sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet pyyaml
+      - name: Validate slug, ids, environment and ref
+        id: plan
+        env:
+          INPUT_SLUG: ${{ github.event.inputs.slug }}
+          INPUT_ENV: ${{ github.event.inputs.env }}
+          INPUT_CR: ${{ github.event.inputs.change_request_id }}
+          INPUT_DRAFT: ${{ github.event.inputs.draft_id }}
+          INPUT_SHA: ${{ github.event.inputs.release_sha }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, sys
+          import yaml
+
+          def fail(msg):
+              print(f"::error title=promote::{msg}"); sys.exit(1)
+
+          manifest = yaml.safe_load(pathlib.Path("stories/_manifest.yaml").read_text(encoding="utf-8")) or {}
+          envs = manifest.get("environments") or {}
+          stories = manifest.get("stories") or {}
+          slug = (os.environ.get("INPUT_SLUG") or "").strip()
+          target = (os.environ.get("INPUT_ENV") or "prod").strip()
+          cr = (os.environ.get("INPUT_CR") or "").strip()
+          draft = (os.environ.get("INPUT_DRAFT") or "").strip()
+          sha = (os.environ.get("INPUT_SHA") or "").strip() or os.environ["GITHUB_SHA"]
+
+          if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug) or slug not in stories:
+              fail(f"slug {slug!r} is not in stories/_manifest.yaml")
+          if target not in envs:
+              fail(f"environment {target!r} is not defined in stories/_manifest.yaml")
+          if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cr) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", draft):
+              fail("change_request_id and draft_id must be plain ids (letters, digits, '-', '_')")
+          if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
+              fail(f"release_sha {sha!r} is not a commit sha")
+          story_id = int((((stories[slug] or {}).get(target)) or {}).get("story_id") or 0)
+          if story_id <= 0:
+              fail(f"{slug} has no story id in {target} — a first import (mode: new) has no change request to promote")
+          if target == "prod" and os.environ.get("GITHUB_REF") != "refs/heads/main":
+              fail("prod promotions run from main only (the scripts that promote are the ones on main)")
+
+          default_secret = "TINES_API_KEY_PROD" if target == "prod" else "TINES_API_KEY"
+          outputs = {
+              "target_env": target,
+              "github_environment": {"prod": "production"}.get(target, target),
+              "key_secret": str((envs.get(target) or {}).get("api_key_secret") or default_secret),
+              "release_sha": sha,
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              for k, v in outputs.items():
+                  fh.write(f"{k}={v}\n")
+          print(outputs)
+          PY
+
+  promote:
+    name: promote an APPROVED change request (never bypass)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # `production` for prod — its required reviewers are one more human gate; the Tines approval is the real one.
+    environment: ${{ needs.plan.outputs.github_environment }}
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets[needs.plan.outputs.key_secret] }}
+      TINES_ENV: ${{ needs.plan.outputs.target_env }}
+      TINES_ALLOW_PROD: ${{ needs.plan.outputs.target_env == 'prod' && '1' || '0' }}
+      BREAK_GLASS: "" # bypass_approval is impossible in this job
+      OPS_ROUTER_URL: ${{ secrets.OPS_ROUTER_URL }}
+      SLUG: ${{ github.event.inputs.slug }}
+      CR_ID: ${{ github.event.inputs.change_request_id }}
+      DRAFT_ID: ${{ github.event.inputs.draft_id }}
+      RELEASE_SHA: ${{ needs.plan.outputs.release_sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: Read the change request — APPROVED, or stop here
+        run: |
+          set -euo pipefail
+          {
+            echo "## promote.yml — \`${SLUG}\` (${TINES_ENV}), change request \`${CR_ID}\`, draft \`${DRAFT_ID}\`"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          rc=0
+          ./scripts/tines cr-view "$SLUG" --env "$TINES_ENV" --draft "$DRAFT_ID" --require-status APPROVED \
+            > "$RUNNER_TEMP/cr-view.md" || rc=$?
+          cat "$RUNNER_TEMP/cr-view.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" -eq 3 ]; then
+            echo "::error title=promote::the change request is not APPROVED — a named approver must approve it in Tines first. Nothing was promoted."
+            echo "**Not promoted:** the request is not APPROVED. Approve it in Tines (a person), then run this again — or push from Tines." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          exit "$rc"
+
+      - name: Promote (delete_draft true; bypass_approval never sent)
+        id: promote
+        run: |
+          set -euo pipefail
+          # promote_change_request.py re-reads the status and refuses anything but APPROVED on its own, too.
+          ./scripts/tines cr-promote "$SLUG" --env "$TINES_ENV" --change-request-id "$CR_ID" \
+            --draft "$DRAFT_ID" --delete-draft | tee "$RUNNER_TEMP/promote.json"
+
+      - name: Tag the release version (the in-tenant bookmark paired with the commit)
+        run: |
+          set -euo pipefail
+          ./scripts/tines version-create "$SLUG" --env "$TINES_ENV" --name "release ${RELEASE_SHA::7}"
+
+      - name: Summary and ops-router notification
+        if: always() && steps.promote.outcome != 'skipped'
+        env:
+          OUTCOME: ${{ steps.promote.outcome }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [ "$OUTCOME" = "success" ]; then
+            {
+              echo
+              echo "**Promoted** change request \`${CR_ID}\` (status was APPROVED in Tines; \`delete_draft: true\`; no bypass). Version \`release ${RELEASE_SHA::7}\` tagged."
+              echo
+              echo "Next: the team change-control webhook posts the push into the ops thread; \`drift.yml\` proves tonight that production equals \`main\`; the next sweep baselines the story."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Promotion failed** — see the log. Nothing else was changed; the request stays as it was in Tines." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "${OPS_ROUTER_URL:-}" ]; then
+            jq -n --arg slug "$SLUG" --arg env "$TINES_ENV" --arg cr "$CR_ID" --arg draft "$DRAFT_ID" \
+                  --arg sha "$RELEASE_SHA" --arg run "$run_url" --arg outcome "$OUTCOME" \
+              '{source: "promote.yml", event: (if $outcome == "success" then "change_request_promoted" else "change_request_promote_failed" end),
+                env: $env, slug: $slug, change_request_id: $cr, draft_id: $draft, sha: $sha, run_url: $run, bypass_approval: false}' \
+              > "$RUNNER_TEMP/notify.json"
+            curl -sS -m 15 -o /dev/null -X POST -H "Content-Type: application/json" --data @"$RUNNER_TEMP/notify.json" "$OPS_ROUTER_URL" \
+              || echo "::warning title=promote::the ops router notification failed (the promotion itself is unaffected)"
+          fi
+
+  # ---- G5 evidence (REPO-DESIGN.md §3.3 row 20, §4.4 05 ship, sdlc/gates/G5-change-request-approval.md) ---------------
+  # The final step: with the prod Viewer key (TINES_API_KEY_PROD_READ, environment prod-read) read the change request
+  # through `./scripts/tines cr-view` and write sdlc/work/<slug>/ship.md + one gate_decision event, through a PR.
+  #   after a promotion here                  → G5b approved_and_pushed
+  #   dispatched with evidence_only           → the decision an approver made in Tines, and only with proof (FAILS CLOSED):
+  #                                             approved_and_pushed only when cr-view shows the request APPROVED or pushed,
+  #                                             or versions-list shows a `release <sha7>` version created after the change
+  #                                             request (after its `pre-ship <sha7>` version when the request is gone);
+  #                                             rejected when cr-view shows a rejection or a rejection_note is given for a
+  #                                             request that is not APPROVED. CANCELLED, PENDING, an unreadable view with
+  #                                             no release version, or ids that match nothing are errors: nothing is
+  #                                             recorded. A first ship's G5a rejection (the manifest still says new: true)
+  #                                             is recorded with a rejection_note.
+  # What cr-view returns after a push and after `delete_draft: true` is VERIFY K45 (including the exact word for a pushed
+  # request). Nothing here promotes or approves.
+  g5-evidence:
+    name: G5 evidence (read the request with the prod Viewer key; write ship.md)
+    needs: [plan, promote]
+    if: >-
+      always() &&
+      github.event.inputs.env == 'prod' &&
+      (inputs.evidence_only || needs.promote.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod-read
+    permissions:
+      contents: read
+    outputs:
+      count: ${{ steps.evidence.outputs.count }}
+    env:
+      TINES_TENANT: ${{ secrets.TINES_TENANT }}
+      TINES_API_KEY: ${{ secrets.TINES_API_KEY_PROD_READ }} # Viewer role: it only reads
+      TINES_ENV: prod
+      TINES_ALLOW_PROD: "1" # the scripts' prod guard; this key cannot write
+      SLUG: ${{ github.event.inputs.slug }}
+      CR_ID: ${{ github.event.inputs.change_request_id }}
+      DRAFT_ID: ${{ github.event.inputs.draft_id }}
+      RELEASE_SHA: ${{ github.event.inputs.release_sha }}
+      EVIDENCE_ONLY: ${{ inputs.evidence_only }}
+      REJECTION_NOTE: ${{ github.event.inputs.rejection_note }}
+      PROMOTED: ${{ needs.promote.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet -r scripts/requirements.txt
+
+      - name: G5 evidence — read the decision and write ship.md
+        id: evidence
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess, sys, time
+          import yaml
+
+          def fail(msg):
+              print(f"::error title=g5-evidence::{msg}"); sys.exit(1)
+
+          slug = (os.environ.get("SLUG") or "").strip()
+          cr, draft = (os.environ.get("CR_ID") or "").strip(), (os.environ.get("DRAFT_ID") or "").strip()
+          sha = (os.environ.get("RELEASE_SHA") or "").strip() or os.environ["GITHUB_SHA"]
+          evidence_only = os.environ.get("EVIDENCE_ONLY") == "true"
+          note = " ".join((os.environ.get("REJECTION_NOTE") or "").split())
+          if os.environ.get("GITHUB_REF") != "refs/heads/main":
+              fail("G5 evidence runs from main only")
+          manifest = yaml.safe_load(pathlib.Path("stories/_manifest.yaml").read_text(encoding="utf-8")) or {}
+          entry = (manifest.get("stories") or {}).get(slug)
+          if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug) or entry is None:
+              fail(f"slug {slug!r} is not in stories/_manifest.yaml")
+          if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cr) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", draft):
+              fail("change_request_id and draft_id must be plain ids")
+          if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
+              fail(f"release_sha {sha!r} is not a commit sha")
+          approvers = yaml.safe_load(pathlib.Path("sdlc/gates/approvers.yaml").read_text(encoding="utf-8")) or {}
+
+          def role(gate):
+              teams = (approvers.get("gates") or {}).get(gate, {}).get("teams") or []
+              handle = (approvers.get("teams") or {}).get(teams[0], teams[0]) if teams else "security-platform"
+              return str(handle).split("/")[-1]
+
+          prod_id = int(((entry.get("prod") or {}).get("story_id")) or 0)
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          common = ["python3", "scripts/sdlc_state.py", "ship-evidence", slug, "--sha", sha, "--workflow", "promote.yml",
+                    "--workflow-run", os.environ["RUN_ID"], "--decided-at", now, "--prod-story-id", str(prod_id)]
+          if prod_id == 0 and entry.get("new"):
+              if not (evidence_only and note):
+                  fail("a first ship (new: true) has no change request: only a G5a rejection is recorded here (evidence_only + rejection_note); ship.yml records G5a approved_and_imported")
+              cmd = common + ["--gate", "G5a", "--decision", "rejected", "--approver-role", role("G5a"), "--rejection-note", note]
+          else:
+              import datetime as dt
+
+              def when(value):
+                  try:
+                      t = dt.datetime.fromisoformat(str(value or "").strip().replace("Z", "+00:00"))
+                  except ValueError:
+                      return None
+                  return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+
+              status, view_ok, req = "", False, {}
+              p = subprocess.run(["./scripts/tines", "cr-view", slug, "--env", "prod", "--draft", draft, "--json"], capture_output=True, text=True)
+              if p.returncode == 0:
+                  try:
+                      view = json.loads(p.stdout or "{}")
+                  except json.JSONDecodeError:
+                      view = {}
+                  view = view if isinstance(view, dict) else {}
+                  req = view.get("change_request") if isinstance(view.get("change_request"), dict) else {}
+                  status = str(req.get("status") or view.get("status") or "").strip()
+                  view_ok = bool(status)
+              # the push leaves a trace only as a story version: `release <sha7>` created after the change request (after
+              # the request's own created_at, or — when the request can no longer be read, K45 — after ship.yml's
+              # `pre-ship <sha7>` rollback point, which is made just before the request is opened)
+              v = subprocess.run(["./scripts/tines", "versions-list", slug, "--env", "prod", "--json"], capture_output=True, text=True)
+              try:
+                  vdata = json.loads(v.stdout or "null") if v.returncode == 0 else None
+              except json.JSONDecodeError:
+                  vdata = None
+              vers = [x for x in ((vdata.get("versions") if isinstance(vdata, dict) else vdata) or []) if isinstance(x, dict)]
+              anchor = when(req.get("created_at"))
+              if anchor is None:
+                  pre = [t for t in (when(x.get("created_at")) for x in vers if str(x.get("name") or "").strip() == f"pre-ship {sha[:7]}") if t]
+                  anchor = max(pre) if pre else None
+              release = sorted(t for t in (when(x.get("created_at")) for x in vers if str(x.get("name") or "").strip() == f"release {sha[:7]}") if t)
+              release_after = [t for t in release if anchor is not None and t > anchor]
+              approved_in_view = view_ok and bool(re.fullmatch(r"APPROVED", status, re.I) or re.search(r"PUSH|PROMOT", status, re.I))  # the pushed word is K45
+              if os.environ.get("PROMOTED") == "true" and not evidence_only:
+                  decision = "approved_and_pushed"  # this run promoted a request whose status was APPROVED
+              elif re.search(r"CANCEL", status, re.I):
+                  fail(f"the request is {status}: a cancelled request is not a decision — nothing is recorded")
+              elif re.search(r"REJECT", status, re.I):
+                  decision = "rejected"
+              elif note:
+                  if approved_in_view or release_after or (status and not re.search(r"PENDING|OPEN|REQUESTED", status, re.I)):
+                      fail(f"a rejection_note was given, but the request shows {status or 'a release version after it'} — nothing is recorded")
+                  decision = "rejected"  # the dispatcher records the approver's rejection of a request not yet decided in Tines
+              elif re.search(r"PENDING|OPEN|REQUESTED", status, re.I):
+                  fail(f"the request is still {status}: nothing is decided yet")
+              elif approved_in_view:
+                  decision = "approved_and_pushed"  # a person approved it in Tines; dispatch evidence_only only after the push
+              elif release_after:
+                  decision = "approved_and_pushed"
+                  status = (f"{status} — " if status else "view unavailable (VERIFY K45) — ") + f"release {sha[:7]} created {release_after[-1].isoformat()} after the request"
+              else:
+                  fail(f"no proof that a person approved and pushed the request: cr-view shows {status or 'nothing (unreadable, or ids that match no request)'} "
+                       f"and no 'release {sha[:7]}' version was created after it (K45) — nothing is recorded. Run promote.yml without evidence_only "
+                       "on the APPROVED request, or dispatch this again while cr-view still shows it")
+              cmd = common + ["--gate", "G5b", "--decision", decision, "--approver-role", role("G5b"),
+                              "--change-request-id", cr, "--cr-status", status, "--draft-name", ""]
+              if decision == "rejected":
+                  cmd += ["--rejection-note", note or f"rejected in Tines (status {status})"]
+          p = subprocess.run(cmd, capture_output=True, text=True)
+          sys.stdout.write(p.stdout); sys.stderr.write(p.stderr)
+          if p.returncode != 0:
+              fail(f"{slug}: the evidence could not be written")
+          count = 0 if "nothing written" in p.stdout else 1
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"count={count}\n")
+          PY
+          # only the evidence files (touch set scripts.ship-evidence): ship.md and events.jsonl per story
+          git status --porcelain -uall -- 'sdlc/work/*/ship.md' 'sdlc/work/*/events.jsonl' | awk '{print $NF}' > "$RUNNER_TEMP/g5-files.txt"
+          tar -czf "$RUNNER_TEMP/g5-evidence.tgz" --files-from "$RUNNER_TEMP/g5-files.txt"
+
+      - name: Hand the evidence to the PR job
+        if: steps.evidence.outputs.count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: g5-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/g5-evidence.tgz
+          retention-days: 3
+
+  # One PR on tracker/ship-<slug>-<sha7> (touch set `tracker`), opened with the tracker-bot GitHub App token so sdlc.yml
+  # runs on it; it needs an approving review from the G5 team in sdlc/gates/approvers.yaml. After it merges,
+  # `./scripts/sdlc advance <slug>` reads ship.md on main (operate, or build with a revert on a rejection).
+  g5-evidence-pr:
+    name: G5 evidence (tracker/ship-<slug>-<sha7> PR, tracker-bot token)
+    needs: g5-evidence
+    if: always() && needs.g5-evidence.result == 'success' && needs.g5-evidence.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: tracker
+    permissions:
+      contents: read # the branch and the PR are written with the tracker-bot App token, never GITHUB_TOKEN
+    steps:
+      - name: Mint the tracker-bot token
+        id: bot
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TRACKER_BOT_APP_ID }}
+          private-key: ${{ secrets.TRACKER_BOT_PRIVATE_KEY }}
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: g5-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/g5
+      - name: Open the evidence PR
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          BOT_TOKEN: ${{ steps.bot.outputs.token }}
+          SLUG: ${{ github.event.inputs.slug }}
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/g5/g5-evidence.tgz"
+          sha=$(sed -n 's/^sha: *"\{0,1\}\([0-9a-f]*\)"\{0,1\}$/\1/p' "sdlc/work/${SLUG}/ship.md" | head -n1)
+          gate=$(sed -n 's/^gate: *//p' "sdlc/work/${SLUG}/ship.md" | head -n1)
+          decision=$(sed -n 's/^decision: *//p' "sdlc/work/${SLUG}/ship.md" | head -n1)
+          branch="tracker/ship-${SLUG}-${sha:0:7}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --quiet -c "$branch"
+          git add -- "sdlc/work/${SLUG}/ship.md" "sdlc/work/${SLUG}/events.jsonl"
+          git commit --quiet -m "ship(${SLUG}): G5 evidence ${gate} ${decision} (${sha:0:7})"
+          git push --quiet --force "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
+          body="G5 evidence for \`${SLUG}\`: **${gate} ${decision}**, written by promote.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (REPO-DESIGN.md §3.3 row 20). It needs an approving review from the ${gate} team in \`sdlc/gates/approvers.yaml\`. After it merges, \`./scripts/sdlc advance ${SLUG}\` reads \`sdlc/work/${SLUG}/ship.md\` on main."
+          if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' < /dev/null | grep -q .; then
+            gh pr create --base main --head "$branch" --title "ship(${SLUG}): G5 evidence ${gate} ${decision}" --body "$body" < /dev/null
+          fi
