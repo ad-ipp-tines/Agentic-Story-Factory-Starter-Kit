@@ -76,3 +76,39 @@ stories:
     prod_story_id: 0
     live_since: ""
     rev: 1
+  - key: kit-01-launchpad
+    title: '[KIT] 01 · Launchpad'
+    use_case: 'Bring your repository, set up your channels, start building: the interactive front door a new customer uses after importing [KIT] 00. It extends [KIT] 00 and never duplicates its provisioning.'
+    library_seed_id: 1321120
+    mode: none
+    owner: platform
+    tier: ops
+    phase: intake
+    status: awaiting_gate
+    open_gate: G0
+    attempt: 0
+    target_date: ''
+    credit_estimate: {monthly: 0, basis: not estimated yet}
+    provider: none
+    links: {design_pr: '', build_pr: '', change_request_id: ''}
+    prod_story_id: 0
+    live_since: ''
+    rev: 2
+  - key: kit-02-cockpit
+    title: '[KIT] 02 · Cockpit'
+    use_case: 'Every story, every gate, every crew member, one screen: the operating view of a tenant running Storyworks, showing honestly what each story is doing, who works on it, what waits on a person, what it costs and whether it is healthy.'
+    library_seed_id: 1231438
+    mode: none
+    owner: platform
+    tier: ops
+    phase: intake
+    status: awaiting_gate
+    open_gate: G0
+    attempt: 0
+    target_date: ''
+    credit_estimate: {monthly: 0, basis: not estimated yet}
+    provider: none
+    links: {design_pr: '', build_pr: '', change_request_id: ''}
+    prod_story_id: 0
+    live_since: ''
+    rev: 2
