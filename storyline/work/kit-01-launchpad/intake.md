@@ -55,7 +55,7 @@ A named person confirms, on a Page or with a Slack button, every change to a Git
 
 ## Simplest-first hypothesis
 
-Rung 3 of `docs/01-decision-rules.md`, used narrowly. Everything that provisions or reads status is rung 1 (HTTP Request actions against the GitHub and Slack APIs, plus native Records and Resources). Rung 2 (Send to Story) reuses `[KIT] 00`'s sections instead of copying them. Neither can draft the welcome copy or a first intake brief, so one tool-less AI Agact action with an output schema does that, behind `storyline_limits`. No MCP (rungs 4 and 5).
+Rung 3 of `docs/01-decision-rules.md`, used narrowly. Everything that provisions or reads status is rung 1 (HTTP Request actions against the GitHub and Slack APIs, plus native Records and Resources). Rung 2 (Send to Story) reuses `[KIT] 00`'s sections instead of copying them. Neither can draft the welcome copy or a first intake brief, so one tool-less AI Agent action with an output schema does that, behind `storyline_limits`. No MCP (rungs 4 and 5).
 
 ## Candidate seeds
 
