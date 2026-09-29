@@ -6,21 +6,21 @@ Record types need **Records**, part of Advanced Workflows (Business and above). 
 
 | File | Record type | Holds | Retention |
 |---|---|---|---|
-| [`sdlc_backlog.record-type.json`](sdlc_backlog.record-type.json) | `sdlc_backlog` | one row per story — the tracker (32 custom fields) | none (kept for the licence's life); `max_records_limit: 1000`, `on_limit_reached: REJECT` |
-| [`sdlc_events.record-type.json`](sdlc_events.record-type.json) | `sdlc_events` | the append-only transition and cost log | `ttl_days: 365`, `retention_column_name: CREATED_AT`, `on_limit_reached: EVICT_OLDEST`, `max_records_limit: 100000` |
-| [`sdlc_milestones.record-type.json`](sdlc_milestones.record-type.json) | `sdlc_milestones` | the day-1, week-1 and week-4 milestones | none |
+| [`storyline_backlog.record-type.json`](storyline_backlog.record-type.json) | `storyline_backlog` | one row per story — the tracker (32 custom fields) | none (kept for the licence's life); `max_records_limit: 1000`, `on_limit_reached: REJECT` |
+| [`storyline_events.record-type.json`](storyline_events.record-type.json) | `storyline_events` | the append-only transition and cost log | `ttl_days: 365`, `retention_column_name: CREATED_AT`, `on_limit_reached: EVICT_OLDEST`, `max_records_limit: 100000` |
+| [`storyline_milestones.record-type.json`](storyline_milestones.record-type.json) | `storyline_milestones` | the day-1, week-1 and week-4 milestones | none |
 
 ## Rules
 
 - **Field types used:** `TEXT` (512 characters), `NUMBER`, `TIMESTAMP` (sent in UTC), `BOOLEAN`, `TEXT_ENUM` (at most 100 fixed values), `JSON` (not filterable) and `ARTIFACT` (large text; whether it holds 15,000 or 100k characters is **CONFLICT K29**, and D4's `render_brief` truncation depends on it — plan for the lower figure until it is resolved). At most 50 custom fields per type.
-- **Enums are generated, not typed.** The `phase`, `status`, `open_gate`, `from_phase`, `to_phase` and `gate` fixed values are exactly the names in `sdlc/lifecycle/state-machine.yaml` (phases + `parked` + `rejected` + `retired`; the six statuses; `none` + the eleven gates; `none` + the phases for the event types). `./scripts/sdlc check` (`phase_enum_in_sync`) and `./scripts/kit tracker-json --check` fail when they drift. Changing the machine means changing these files in the same PR, then migrating the live types (`PUT /api/v1/record_types/{id}` adds fields; changing enum values needs care — REPO-DESIGN.md §14, con 11).
-- **No secrets, no personal data in fields that reach git.** `actor` is always a role. `sdlc_events.actor_ref` holds the approver's email for in-tenant audit only; it is never sent to git (the outbox returns roles).
-- **Only through the Records API.** Sections B–E read and write these types only through HTTP Request actions to the Records API, by the type and field ids A18 stored in `kit_state.rt_<type>` and `kit_state.fields_<type>` — never through Record actions — so nothing depends on how an import resolves record types (K6). Creation is not idempotent: upserts run under the `sdlc_sync_lock` compare-and-swap (B4–B7), and seeding under the `records_seeded` compare-and-swap (A20).
+- **Enums are generated, not typed.** The `phase`, `status`, `open_gate`, `from_phase`, `to_phase` and `gate` fixed values are exactly the names in `storyline/lifecycle/state-machine.yaml` (phases + `parked` + `rejected` + `retired`; the six statuses; `none` + the eleven gates; `none` + the phases for the event types). `./scripts/storyline check` (`phase_enum_in_sync`) and `./scripts/kit tracker-json --check` fail when they drift. Changing the machine means changing these files in the same PR, then migrating the live types (`PUT /api/v1/record_types/{id}` adds fields; changing enum values needs care — REPO-DESIGN.md §14, con 11).
+- **No secrets, no personal data in fields that reach git.** `actor` is always a role. `storyline_events.actor_ref` holds the approver's email for in-tenant audit only; it is never sent to git (the outbox returns roles).
+- **Only through the Records API.** Sections B–E read and write these types only through HTTP Request actions to the Records API, by the type and field ids A18 stored in `kit_state.rt_<type>` and `kit_state.fields_<type>` — never through Record actions — so nothing depends on how an import resolves record types (K6). Creation is not idempotent: upserts run under the `storyline_sync_lock` compare-and-swap (B4–B7), and seeding under the `records_seeded` compare-and-swap (A20).
 - **Test vs live.** Records written from a change-control draft are test records, and test and live records never mix. Submit the kickoff on the LIVE story (§7.1; K39).
 
 ## Licence tiers
 
-Record types per licence: Starter 5, Essentials 50, Standard 100, Advanced 150, Enterprise L1 250. The kit adds 3 to the ops trio's 6 (nine in all). On **Starter**, A18 creates `sdlc_backlog` and `sdlc_milestones` only, keeps events in `events.jsonl` only, and says in the setup report that the ops trio's six types alone already exceed Starter's 5 (the bundle marks `sdlc_events` with `skip_on_records_tier: ["starter"]`). The Records API allows 400 requests a minute (Query 200) and a page size of 500.
+Record types per licence: Starter 5, Essentials 50, Standard 100, Advanced 150, Enterprise L1 250. The kit adds 3 to the ops trio's 6 (nine in all). On **Starter**, A18 creates `storyline_backlog` and `storyline_milestones` only, keeps events in `events.jsonl` only, and says in the setup report that the ops trio's six types alone already exceed Starter's 5 (the bundle marks `storyline_events` with `skip_on_records_tier: ["starter"]`). The Records API allows 400 requests a minute (Query 200) and a page size of 500.
 
 ## Verify in your tenant
 

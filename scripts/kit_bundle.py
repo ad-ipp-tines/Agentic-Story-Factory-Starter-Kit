@@ -12,27 +12,27 @@ Generates, deterministically (no timestamps, no commit SHA — the same sources 
 * ``skills[]``        every ``tines-skills/<name>/SKILL.md``, parsed and validated exactly as ``push_skills.py`` does
                       (A17 creates each one in the ops team, never overwriting a customer's skill)
 * ``record_types[]``  the three ``kit/records/*.record-type.json`` bodies for ``POST /api/v1/record_types`` (A18)
-* ``resources[]``     every Resource A19 creates, with its initial value: ``kit_catalog``, ``sdlc_state_machine`` and
-                      ``sdlc_limits`` generated here; ``sdlc_approvers``, ``sdlc_sync_lock`` and ``kit_tracker_view`` as
+* ``resources[]``     every Resource A19 creates, with its initial value: ``kit_catalog``, ``storyline_state_machine`` and
+                      ``storyline_limits`` generated here; ``storyline_approvers``, ``storyline_sync_lock`` and ``kit_tracker_view`` as
                       empty shapes; ``kit_config`` built at run time from the Page; the ops trio's four Resources
                       from ``stories/ops-story-health-monitor/resources/*.example.json`` (created only when absent)
-* ``dashboard``       ``kit/dashboard/dashboards/story-factory.dashboard.json`` (A23; a SKELETON until §15.6)
+* ``dashboard``       ``kit/dashboard/dashboards/storyworks.dashboard.json`` (A23; a SKELETON until §15.6)
 * ``app_files[]``     ``kit/dashboard/app/**`` — tsx/ts/jsx/js/json only (``endpoints.md`` is documentation), each
                       ≤ 128 KB, ≤ 5 MB in all, ``App.tsx`` present (A24: ``PUT /api/v1/apps/{id}/files``)
 * ``file_manifest[]`` the files A12's Contents-API fallback copies from the template (paths only; ``over_1mb``
                       marks a ``[BY HAND]`` copy). In a provisioned repository (``kit/tenant/config.yaml`` exists)
                       the manifest is carried over unchanged: the fallback copy is a template-only concern, and a
                       customer's new stories must not make the bundle stale
-* ``state_machine``   the ``sdlc_state_machine`` Resource value, generated from ``sdlc/lifecycle/state-machine.yaml``
+* ``state_machine``   the ``storyline_state_machine`` Resource value, generated from ``storyline/lifecycle/state-machine.yaml``
 * ``catalog``         the ``kit_catalog`` Resource value, generated from ``kit/catalog/`` and the milestone catalog
 
-It also writes the generated examples in ``kit/resources/`` (``kit_catalog``, ``sdlc_state_machine``,
-``sdlc_limits``, ``kit_config``, ``kit_state``). ``--check`` writes nothing and exits 1 when the committed bundle or
-an example differs from what the sources produce (``kit.yml`` on PRs; ``./scripts/sdlc check`` ``bundle_fresh``).
+It also writes the generated examples in ``kit/resources/`` (``kit_catalog``, ``storyline_state_machine``,
+``storyline_limits``, ``kit_config``, ``kit_state``). ``--check`` writes nothing and exits 1 when the committed bundle or
+an example differs from what the sources produce (``kit.yml`` on PRs; ``./scripts/storyline check`` ``bundle_fresh``).
 
 Importable: ``build_bundle(root)``, ``bundle_problems(root)``, ``bundle_resource_values(root, config)`` (the four
 synced Resources in bundle form — what ``kit_state.hash_<name>`` fingerprints), ``generated_resource_values(root,
-config, tenant_host)`` (what kit-sync.yml writes), ``resource_hash(value)`` (= ``sdlc_common.resource_hash``),
+config, tenant_host)`` (what kit-sync.yml writes), ``resource_hash(value)`` (= ``storyline_common.resource_hash``),
 ``snapshot_hashes(snapshot)``, ``resources_in_sync_problems(root, snapshot)``, ``kit_config_value``.
 """
 
@@ -67,7 +67,7 @@ from kit_tracker import (  # noqa: E402
 
 BUNDLE = Path("kit/bundle/kit-bundle.json")
 APP_DIR = Path("kit/dashboard/app")
-DASHBOARD = Path("kit/dashboard/dashboards/story-factory.dashboard.json")
+DASHBOARD = Path("kit/dashboard/dashboards/storyworks.dashboard.json")
 RESOURCES_DIR = Path("kit/resources")
 TENANT_CONFIG = Path("kit/tenant/config.yaml")
 TENANT_CONFIG_EXAMPLE = Path("kit/tenant/config.example.yaml")
@@ -82,8 +82,8 @@ RESOURCE_MAX = 5 * 1024 * 1024
 BUNDLE_WARN = 900 * 1024            # GitHub raw reads above 1 MB are K44
 LARGE_FILE = 1024 * 1024            # A12: files over 1 MB are [BY HAND] copies
 
-RECORD_TYPES = ("sdlc_backlog", "sdlc_events", "sdlc_milestones")
-SYNCED_RESOURCES = ("sdlc_state_machine", "kit_catalog", "kit_config", "sdlc_limits")   # kit-sync.yml keeps these current
+RECORD_TYPES = ("storyline_backlog", "storyline_events", "storyline_milestones")
+SYNCED_RESOURCES = ("storyline_state_machine", "kit_catalog", "kit_config", "storyline_limits")   # kit-sync.yml keeps these current
 LIMITS_HUMAN_KEYS = ("enabled", "guards_confirmed")   # only people set these two; kit-sync.yml never writes them
 RUNTIME_DEFAULTS = {                                   # REPO-DESIGN.md §8.2; policies/cost-ceilings.yml wins when present
     "planner": {"runs_per_day_max": 4, "credits_per_run_max": 2},
@@ -92,14 +92,14 @@ RUNTIME_DEFAULTS = {                                   # REPO-DESIGN.md §8.2; p
 }
 PENDING_RESET_HOURS = 24
 MILESTONE_DEFAULT_OWNER = "platform"
-# The step_* keys section A writes into kit_state (stories/kit-factory/sections/A-kickoff-and-provisioning.md is the
+# The step_* keys section A writes into kit_state (stories/kit-launch/sections/A-kickoff-and-provisioning.md is the
 # authority for the list; kit/tenant/README.md maps them to the setup report).
 STEP_KEYS = ("step_teams", "step_providers", "step_github", "step_repo", "step_bundle", "step_config", "step_skills",
              "step_record_types", "step_resources", "step_seed", "step_dashboard", "step_app", "step_probe",
              "step_report")
-KIT_RESOURCES = ("kit_config", "kit_catalog", "sdlc_state_machine", "sdlc_limits", "sdlc_approvers", "sdlc_sync_lock",
+KIT_RESOURCES = ("kit_config", "kit_catalog", "storyline_state_machine", "storyline_limits", "storyline_approvers", "storyline_sync_lock",
                  "kit_tracker_view", "ops_limits", "ops_lock", "ops_responders", "ops_routing")
-MANIFEST_EXCLUDE_DIRS = {".git", ".sdlc", ".tines", "__pycache__", "node_modules", ".terraform", ".obsidian"}
+MANIFEST_EXCLUDE_DIRS = {".git", ".storyline", ".tines", "__pycache__", "node_modules", ".terraform", ".obsidian"}
 MANIFEST_EXCLUDE_FILES = {".DS_Store", ".env", ".mcp.json", "CLAUDE.local.md", ".terraform.lock.hcl"}
 MANIFEST_EXCLUDE_PATHS = {"kit/tenant/config.yaml", "kit/tenant/setup-report.json", ".cursor/mcp.json",
                           ".claude/settings.local.json"}
@@ -111,7 +111,7 @@ MANIFEST_EXCLUDE_PATHS = {"kit/tenant/config.yaml", "kit/tenant/setup-report.jso
 
 
 def build_state_machine_resource(root: Path) -> dict[str, Any]:
-    """The sdlc_state_machine Resource: what sections B, C and D read (B3 enums, C5 apply_decision, D dispatch)."""
+    """The storyline_state_machine Resource: what sections B, C and D read (B3 enums, C5 apply_decision, D dispatch)."""
     sm = load_state_machine(root)
     info = sm.get("phase_info") or {}
     gate_info = sm.get("gate_info") or {}
@@ -139,19 +139,19 @@ def build_state_machine_resource(root: Path) -> dict[str, Any]:
                 entry[extra] = t[extra]
         table.setdefault(key, []).append(entry)
     enums = {
-        "mode": record_enum(root, "sdlc_backlog", "mode"),
-        "tier": record_enum(root, "sdlc_backlog", "tier"),
-        "provider": record_enum(root, "sdlc_backlog", "provider"),
-        "specialist_due": record_enum(root, "sdlc_backlog", "specialist_due"),
-        "specialist_status": record_enum(root, "sdlc_backlog", "specialist_status"),
-        "event_type": record_enum(root, "sdlc_events", "event_type"),
-        "actor_kind": record_enum(root, "sdlc_events", "actor_kind"),
-        "milestone_id": record_enum(root, "sdlc_milestones", "milestone_id"),
-        "milestone_status": record_enum(root, "sdlc_milestones", "status"),
+        "mode": record_enum(root, "storyline_backlog", "mode"),
+        "tier": record_enum(root, "storyline_backlog", "tier"),
+        "provider": record_enum(root, "storyline_backlog", "provider"),
+        "specialist_due": record_enum(root, "storyline_backlog", "specialist_due"),
+        "specialist_status": record_enum(root, "storyline_backlog", "specialist_status"),
+        "event_type": record_enum(root, "storyline_events", "event_type"),
+        "actor_kind": record_enum(root, "storyline_events", "actor_kind"),
+        "milestone_id": record_enum(root, "storyline_milestones", "milestone_id"),
+        "milestone_status": record_enum(root, "storyline_milestones", "status"),
     }
     return {
         "version": sm.get("version", 1),
-        "source": "sdlc/lifecycle/state-machine.yaml — generated by ./scripts/kit bundle and kept current by "
+        "source": "storyline/lifecycle/state-machine.yaml — generated by ./scripts/kit bundle and kept current by "
                   "kit-sync.yml; never edit this Resource by hand",
         "phases": list(sm.get("phases") or []),
         "holding": list(sm.get("holding") or []),
@@ -213,13 +213,13 @@ def build_catalog_resource(root: Path) -> dict[str, Any]:
 
 
 def build_limits_resource(root: Path) -> dict[str, Any]:
-    """The sdlc_limits Resource. Mirrors policies/cost-ceilings.yml (kit-factory/* lines) and state-machine timers."""
+    """The storyline_limits Resource. Mirrors policies/cost-ceilings.yml (kit-launch/* lines) and state-machine timers."""
     sm = load_state_machine(root)
     ceilings = read_yaml(root / COST_CEILINGS) if (root / COST_CEILINGS).exists() else {}
     agents = (ceilings or {}).get("agents") or {}
     runtime: dict[str, dict[str, Any]] = {}
     for agent, defaults in RUNTIME_DEFAULTS.items():
-        line = agents.get(f"kit-factory/{agent}") or {}
+        line = agents.get(f"kit-launch/{agent}") or {}
         entry = dict(defaults)
         for key in ("runs_per_day_max", "credits_per_run_max"):
             if isinstance(line.get(key), (int, float)) and not isinstance(line.get(key), bool):
@@ -262,16 +262,16 @@ def bundle_resource_values(root: Path, config: Optional[dict[str, Any]] = None) 
     """The four Resources kit-sync.yml keeps current, IN BUNDLE FORM — exactly the ``resources[].value`` that
     ``./scripts/kit bundle`` writes for them, and therefore what ``resource_hash`` is computed over.
 
-    Bundle form means: ``sdlc_limits`` with ``enabled`` and ``guards_confirmed`` at their created value (false) —
+    Bundle form means: ``storyline_limits`` with ``enabled`` and ``guards_confirmed`` at their created value (false) —
     kit-sync.yml never writes those two keys, but the fingerprint covers the generated value as a whole; and
     ``kit_config`` with the ``<your-tenant>.tines.com`` placeholder for ``tenant_host``, because the real host lives only
     in the tenant and never in git. ``kit_config`` is present only when a config is given or ``kit/tenant/config.yaml``
     exists (a provisioned repository); in the template it is built at run time by A19.
     """
     values: dict[str, Any] = {
-        "sdlc_state_machine": build_state_machine_resource(root),
+        "storyline_state_machine": build_state_machine_resource(root),
         "kit_catalog": build_catalog_resource(root),
-        "sdlc_limits": build_limits_resource(root),
+        "storyline_limits": build_limits_resource(root),
     }
     if config is None and (root / TENANT_CONFIG).exists():
         config = load_config(root)
@@ -283,9 +283,9 @@ def bundle_resource_values(root: Path, config: Optional[dict[str, Any]] = None) 
 def generated_resource_values(root: Path, config: Optional[dict[str, Any]] = None,
                               tenant_host: Optional[str] = None) -> dict[str, Any]:
     """What kit-sync.yml WRITES: the bundle-form values, with the real ``tenant_host`` in ``kit_config`` and only the
-    keys kit-sync.yml owns in ``sdlc_limits`` (never ``enabled`` / ``guards_confirmed``)."""
+    keys kit-sync.yml owns in ``storyline_limits`` (never ``enabled`` / ``guards_confirmed``)."""
     values = bundle_resource_values(root, config)
-    values["sdlc_limits"] = {k: v for k, v in values["sdlc_limits"].items() if k not in LIMITS_HUMAN_KEYS}
+    values["storyline_limits"] = {k: v for k, v in values["storyline_limits"].items() if k not in LIMITS_HUMAN_KEYS}
     if "kit_config" in values and tenant_host:
         values["kit_config"] = {**values["kit_config"], "tenant_host": tenant_host}
     return values
@@ -295,15 +295,15 @@ def resource_hash(value: Any) -> str:
     """The value recorded as ``kit_state.hash_<name>``: the sha256 hex of the canonical JSON (sorted keys, no
     whitespace, UTF-8 kept) of the Resource's BUNDLE-FORM value (``bundle_resource_values``).
 
-    This is ``sdlc_common.resource_hash`` — the definition ``./scripts/sdlc check resources_in_sync`` recomputes over
+    This is ``storyline_common.resource_hash`` — the definition ``./scripts/storyline check resources_in_sync`` recomputes over
     ``kit/bundle/kit-bundle.json`` ``resources[].value`` — so the writer (kit-sync.yml) and both checkers agree. The
     fallback below is the same formula for a checkout without the lifecycle scripts.
     """
     try:
-        from sdlc_common import resource_hash as sdlc_resource_hash  # the single definition
+        from storyline_common import resource_hash as storyline_resource_hash  # the single definition
     except ImportError:
         return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
-    return sdlc_resource_hash(value)
+    return storyline_resource_hash(value)
 
 
 def snapshot_hashes(snapshot: Any) -> dict[str, str]:
@@ -401,7 +401,7 @@ def build_record_types(root: Path) -> list[dict[str, Any]]:
         out.append({
             "name": name,
             "file": rel.as_posix(),
-            "skip_on_records_tier": ["starter"] if name == "sdlc_events" else [],   # A18: Starter holds 5 types
+            "skip_on_records_tier": ["starter"] if name == "storyline_events" else [],   # A18: Starter holds 5 types
             "body": body,
         })
     return out
@@ -427,14 +427,14 @@ def build_resources(root: Path, state_machine: dict[str, Any], catalog: dict[str
          "description": "The kit's config: Page answers (no emails), team ids, entitlements, LLM choice. Kept current by kit-sync.yml."},
         {"name": "kit_catalog", "create": "always", "value": catalog,
          "description": "Starter stories, verified Library ids and milestones, from kit/catalog/. Kept current by kit-sync.yml."},
-        {"name": "sdlc_state_machine", "create": "always", "value": state_machine,
-         "description": "Phases, statuses, gates, transitions and runtime_dispatch, from sdlc/lifecycle/. Kept current by kit-sync.yml."},
-        {"name": "sdlc_limits", "create": "always", "value": limits,
+        {"name": "storyline_state_machine", "create": "always", "value": state_machine,
+         "description": "Phases, statuses, gates, transitions and runtime_dispatch, from storyline/lifecycle/. Kept current by kit-sync.yml."},
+        {"name": "storyline_limits", "create": "always", "value": limits,
          "description": "Kill switch, guards flag, per-agent caps and timers. enabled and guards_confirmed are set by people only."},
-        {"name": "sdlc_approvers", "create": "always", "value": {"G0": [], "G6": [], "G7": [], "GX": [], "unpark": []},
+        {"name": "storyline_approvers", "create": "always", "value": {"G0": [], "G6": [], "G7": [], "GX": [], "unpark": []},
          "built_at_run_time": "A19: G0, G6 and G7 from the kickoff Page approver emails; GX and unpark by hand",
          "description": "Who may decide each Tines-side gate (emails; never committed)."},
-        {"name": "sdlc_sync_lock", "create": "always", "value": {"lock": "free"},
+        {"name": "storyline_sync_lock", "create": "always", "value": {"lock": "free"},
          "description": "The compare-and-swap lock for Flow 1 (section B) and kit-sync.yml."},
         {"name": "kit_tracker_view", "create": "records_not_entitled", "value": empty_view,
          "description": "The tracker mirror the Page fallback renders when Records are not entitled (section B writes it)."},
@@ -511,7 +511,7 @@ def _manifest_candidates(root: Path) -> list[str]:
     """Every file of the working tree that git would carry: a walk that honours .gitignore and skips local state.
 
     A walk (not ``git ls-files``) so the result is the same in a clean checkout, in CI, and in the scratch copy
-    ``./scripts/sdlc check`` (bundle_fresh) builds without ``.git``.
+    ``./scripts/storyline check`` (bundle_fresh) builds without ``.git``.
     """
     rules = _gitignore_rules(root)
     paths = []
@@ -540,7 +540,7 @@ def build_file_manifest(root: Path, committed: Optional[dict[str, Any]]) -> tupl
             continue
         if rel.startswith("terraform/") and (".tfstate" in name or name.endswith(".tfvars") and not name.endswith(".example.tfvars")):
             continue
-        if rel.startswith("sdlc/work/") and rel != "sdlc/work/README.md":
+        if rel.startswith("storyline/work/") and rel != "storyline/work/README.md":
             continue  # per-story artifacts are the customer's, never the template's
         entry: dict[str, Any] = {"path": rel}
         if rel == BUNDLE.as_posix():
@@ -561,8 +561,8 @@ def generated_examples(root: Path, state_machine: dict[str, Any], catalog: dict[
     example_config = load_config(root, TENANT_CONFIG_EXAMPLE)
     return {
         RESOURCES_DIR / "kit_catalog.example.json": catalog,
-        RESOURCES_DIR / "sdlc_state_machine.example.json": state_machine,
-        RESOURCES_DIR / "sdlc_limits.example.json": limits,
+        RESOURCES_DIR / "storyline_state_machine.example.json": state_machine,
+        RESOURCES_DIR / "storyline_limits.example.json": limits,
         RESOURCES_DIR / "kit_config.example.json": kit_config_value(example_config, None),
         RESOURCES_DIR / "kit_state.example.json": build_kit_state_example(root),
     }
@@ -576,9 +576,9 @@ def build_bundle(root: Path) -> tuple[dict[str, Any], dict[Path, Any]]:
         except (json.JSONDecodeError, ScriptError):
             committed = None
     values = bundle_resource_values(root)
-    state_machine = values["sdlc_state_machine"]
+    state_machine = values["storyline_state_machine"]
     catalog = values["kit_catalog"]
-    limits = values["sdlc_limits"]
+    limits = values["storyline_limits"]
     dashboard = read_json(root / DASHBOARD)
     file_manifest, frozen = build_file_manifest(root, committed)
     bundle = {
@@ -586,9 +586,9 @@ def build_bundle(root: Path) -> tuple[dict[str, Any], dict[Path, Any]]:
         "description": "Generated by ./scripts/kit bundle — never edit by hand (kit/bundle/README.md). Read by "
                        "[KIT] 00 A15 from the new repository, and by A12's fallback copy from the template.",
         "generated_from": ["tines-skills/*/SKILL.md", "kit/records/*.record-type.json", "kit/catalog/*.yaml",
-                           "kit/tracker/milestones.yaml", "sdlc/lifecycle/state-machine.yaml",
+                           "kit/tracker/milestones.yaml", "storyline/lifecycle/state-machine.yaml",
                            "policies/cost-ceilings.yml", "stories/ops-story-health-monitor/resources/*.example.json",
-                           "kit/dashboard/app/**", "kit/dashboard/dashboards/story-factory.dashboard.json"],
+                           "kit/dashboard/app/**", "kit/dashboard/dashboards/storyworks.dashboard.json"],
         "skills": build_skills(root),
         "record_types": build_record_types(root),
         "resources": build_resources(root, state_machine, catalog, limits, values.get("kit_config")),

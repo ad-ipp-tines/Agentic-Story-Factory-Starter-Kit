@@ -107,7 +107,7 @@
       ],
       "due_offset_days": 1,
       "id": "day-1",
-      "title": "Day 1: the factory is provisioned and safe to build in"
+      "title": "Day 1: Storyworks is provisioned and safe to build in"
     },
     {
       "criteria": [
@@ -115,7 +115,7 @@
         "Story #2 is live and is every production story's recipient",
         "[OPS] 10, the ops sweep, is live",
         "The tracker round trip is proven: a Tines-side G0 reached main by PR",
-        "review.yml runs (called by sdlc.yml)",
+        "review.yml runs (called by storyline.yml)",
         "Token alerts are set on the kit's agents",
         "Two or three more stories are in design or build"
       ],

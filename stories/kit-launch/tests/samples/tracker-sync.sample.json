@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "source_sha": "0000000000000000000000000000000000000000",
+  "full": false,
+  "entries": [
+    {
+      "story_key": "example-enrich-ip",
+      "title": "[SEC] 01 · Enrich IP (sub)",
+      "use_case": "Enrich an IP from several reputation services and return one verdict.",
+      "library_seed_id": 87626,
+      "mode": "sub-story",
+      "owner": "security-automation",
+      "tier": "production",
+      "phase": "intake",
+      "status": "active",
+      "open_gate": "none",
+      "attempt": 0,
+      "target_date": null,
+      "credit_estimate_monthly": 0,
+      "credit_estimate_basis": "no AI Agent action",
+      "provider": "none",
+      "design_pr": "",
+      "build_pr": "",
+      "change_request_id": "",
+      "prod_story_id": 0,
+      "live_since": null,
+      "rev": 1
+    },
+    {
+      "story_key": "ops-story-health-monitor",
+      "title": "[OPS] 10 · Monitor story health and credits",
+      "use_case": "Sweep every production story for failures, silence and credit burn, and propose fixes for a human to approve.",
+      "library_seed_id": null,
+      "mode": "mode-3-agent",
+      "owner": "ops",
+      "tier": "ops",
+      "phase": "intake",
+      "status": "active",
+      "open_gate": "none",
+      "attempt": 0,
+      "target_date": null,
+      "credit_estimate_monthly": null,
+      "credit_estimate_basis": "set at design: sweep runs/day × observed triage and critic credits × 30",
+      "provider": "none",
+      "design_pr": "",
+      "build_pr": "",
+      "change_request_id": "",
+      "prod_story_id": 0,
+      "live_since": null,
+      "rev": 1
+    },
+    {
+      "story_key": "kit-launch",
+      "title": "[KIT] 00 · Launch Storyworks",
+      "use_case": "Provision a customer's repository and tenant from one kickoff Page, keep the tracker in sync between git and Records, and dispatch the tool-less runtime crew.",
+      "library_seed_id": null,
+      "mode": "none",
+      "owner": "platform",
+      "tier": "ops",
+      "phase": "design",
+      "status": "active",
+      "open_gate": "none",
+      "attempt": 0,
+      "target_date": null,
+      "credit_estimate_monthly": null,
+      "credit_estimate_basis": "set at design: planner, brief_writer and retro_writer runs/day × credits/run observed in dev × 30, plus the two provider probes",
+      "provider": "none",
+      "design_pr": "",
+      "build_pr": "",
+      "change_request_id": "",
+      "prod_story_id": 0,
+      "live_since": null,
+      "rev": 1
+    }
+  ],
+  "milestones": [
+    {
+      "milestone_id": "day-1",
+      "title": "Day 1: Storyworks is provisioned and safe to build in",
+      "criteria": "- The setup report is ok, or partial with every failure explained\n- The repository and the tenant config commit exist\n- The Tines Agent Skills are pushed\n- The Record types and Resources exist, including the ops trio's six Record types\n- The provider probe is ok, or tool_calls_unreliable is acknowledged\n- /tines-connect works in at least one editor\n- K2 is confirmed, or phase-gate.sh is known to deny all /mcp calls until it is\n- Team memberships are checked: no builder account holds an Editor or Admin role in the prod (ops) team\n- Story #1 has passed G0 and discovery\n- Branch protection, CODEOWNERS and the GitHub environments are set\n- The provisioning token is revoked or expiring",
+      "status": "not_started",
+      "due_date": null,
+      "evidence_ref": "",
+      "owner": "platform",
+      "rev": 1
+    },
+    {
+      "milestone_id": "week-1",
+      "title": "Week 1: the first stories are live and the tracker round trip works",
+      "criteria": "- Story #1 is live through G5\n- Story #2 is live and is every production story's recipient\n- [OPS] 10, the ops sweep, is live\n- The tracker round trip is proven: a Tines-side G0 reached main by PR\n- review.yml runs (called by storyline.yml)\n- Token alerts are set on the kit's agents\n- Two or three more stories are in design or build",
+      "status": "not_started",
+      "due_date": null,
+      "evidence_ref": "",
+      "owner": "platform",
+      "rev": 1
+    },
+    {
+      "milestone_id": "week-4",
+      "title": "Week 4: the lifecycle runs end to end, including improve",
+      "criteria": "- At least 3 stories are live, including one mode-3-agent with an output schema, a Trigger, a token alert, a skill and a budget line\n- The ops sweep is running with baselines\n- The first retro is closed and at least one eval case has graduated to regression\n- One skill change has shipped via skills.yml\n- The dashboard is in use\n- Credits have been reviewed against estimates\n- G7 dates are set",
+      "status": "not_started",
+      "due_date": null,
+      "evidence_ref": "",
+      "owner": "platform",
+      "rev": 1
+    }
+  ],
+  "view": {
+    "schema_version": 1,
+    "counts_by_phase": {
+      "intake": 2,
+      "discover": 0,
+      "design": 1,
+      "build": 0,
+      "verify": 0,
+      "ship": 0,
+      "operate": 0,
+      "improve": 0,
+      "parked": 0,
+      "rejected": 0,
+      "retired": 0
+    },
+    "open_gates": [],
+    "stories": [
+      {
+        "key": "example-enrich-ip",
+        "title": "[SEC] 01 · Enrich IP (sub)",
+        "phase": "intake",
+        "status": "active",
+        "open_gate": "none",
+        "owner": "security-automation",
+        "target_date": "",
+        "credit_estimate_monthly": 0
+      },
+      {
+        "key": "ops-story-health-monitor",
+        "title": "[OPS] 10 · Monitor story health and credits",
+        "phase": "intake",
+        "status": "active",
+        "open_gate": "none",
+        "owner": "ops",
+        "target_date": "",
+        "credit_estimate_monthly": null
+      },
+      {
+        "key": "kit-launch",
+        "title": "[KIT] 00 · Launch Storyworks",
+        "phase": "design",
+        "status": "active",
+        "open_gate": "none",
+        "owner": "platform",
+        "target_date": "",
+        "credit_estimate_monthly": null
+      }
+    ],
+    "stories_csv": "key,title,phase,status,open_gate,owner,target_date,credit_estimate_monthly\nexample-enrich-ip,[SEC] 01 · Enrich IP (sub),intake,active,none,security-automation,,0\nops-story-health-monitor,[OPS] 10 · Monitor story health and credits,intake,active,none,ops,,\nkit-launch,[KIT] 00 · Launch Storyworks,design,active,none,platform,,\n",
+    "milestones": [
+      {
+        "id": "day-1",
+        "title": "Day 1: Storyworks is provisioned and safe to build in",
+        "status": "not_started",
+        "due_date": ""
+      },
+      {
+        "id": "week-1",
+        "title": "Week 1: the first stories are live and the tracker round trip works",
+        "status": "not_started",
+        "due_date": ""
+      },
+      {
+        "id": "week-4",
+        "title": "Week 4: the lifecycle runs end to end, including improve",
+        "status": "not_started",
+        "due_date": ""
+      }
+    ],
+    "milestones_csv": "id,title,status,due_date\nday-1,Day 1: Storyworks is provisioned and safe to build in,not_started,\nweek-1,Week 1: the first stories are live and the tracker round trip works,not_started,\nweek-4,\"Week 4: the lifecycle runs end to end, including improve\",not_started,\n",
+    "source_sha": "0000000000000000000000000000000000000000"
+  }
+}

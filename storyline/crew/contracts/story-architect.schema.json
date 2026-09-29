@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tines-storyworks/storyline/crew/contracts/story-architect.schema.json",
+  "title": "story-architect — input requirements and output payload",
+  "description": "Spec: REPO-DESIGN.md §5.3.2, §4.4 (02 design). Files the architect returns: storyline/work/<slug>/design.md (from storyline/templates/design-brief.md, with exactly one fenced `json story-contract` block), stories/<slug>/README.md, stories/<slug>/story.meta.yaml, and storyline/work/<slug>/spikes/<id>.md for each proposed spike. Patches: the manifest entry (.stories.<slug> with new: true), the budget line (.agents.\"<slug>/<action>\" per AI Agent action) and the story's own tracker row. `payload.contract` must equal the contract block in design.md; ./scripts/storyline apply validates it against storyline/templates/story-contract.schema.json (a cross-file reference this schema does not inline).",
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "phase",
+        "inputs"
+      ],
+      "properties": {
+        "phase": {
+          "const": "design"
+        },
+        "inputs": {
+          "type": "array",
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "intake_brief"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "discovery_note"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "decision_rules"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "tenant_config"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "cost_ceilings"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "contract_schema"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "contract",
+        "tools_design",
+        "cost_estimate",
+        "risks",
+        "shadow_mode",
+        "spikes"
+      ],
+      "properties": {
+        "mode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rung",
+            "value",
+            "why_not_lower"
+          ],
+          "description": "The same object as contract.mode — the lowest rung of docs/01-decision-rules.md that works, and one sentence per lower rung on why it fails",
+          "properties": {
+            "rung": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "none",
+                "sub-story",
+                "mode-1-preset",
+                "mode-3-agent",
+                "mode-4-server"
+              ]
+            },
+            "why_not_lower": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 300
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "rung": {
+                    "minimum": 2
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "why_not_lower": {
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "contract": {
+          "type": "object",
+          "required": [
+            "contract_version",
+            "story_key",
+            "title",
+            "mode",
+            "acceptance_criteria",
+            "ai_agents",
+            "cost_estimate"
+          ],
+          "description": "The design contract; the full validation is storyline/templates/story-contract.schema.json"
+        },
+        "tools_design": {
+          "type": "array",
+          "maxItems": 5,
+          "description": "Mode 3 and Mode 4 tools only (the same items as contract.tools_design); empty otherwise",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "description",
+              "args",
+              "returns",
+              "hints"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "name": {
+                      "pattern": "(block|delete|isolate|disable)"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "name": {
+                      "pattern": "^request_"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "cost_estimate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runs_per_day",
+            "credits_per_run_est",
+            "monthly_credits_est",
+            "provider",
+            "basis"
+          ],
+          "description": "From ./scripts/storyline estimate <slug>; never invented. Without an AI Agent action: credits 0, basis \"no AI Agent action\"",
+          "properties": {
+            "runs_per_day": {
+              "type": "number",
+              "minimum": 0
+            },
+            "credits_per_run_est": {
+              "type": "number",
+              "minimum": 0
+            },
+            "monthly_credits_est": {
+              "type": "number",
+              "minimum": 0
+            },
+            "provider": {
+              "type": "string",
+              "enum": [
+                "tines_provided",
+                "custom",
+                "local",
+                "none"
+              ]
+            },
+            "basis": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 300
+            }
+          }
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "risk",
+              "mitigation"
+            ],
+            "properties": {
+              "risk": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 300
+              },
+              "mitigation": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 300
+              },
+              "verify_ref": {
+                "type": "string",
+                "pattern": "^(K[0-9]{1,2}|#[0-9]{1,2}|E[0-9]{1,2})$",
+                "description": "The VERIFY item the risk depends on (REPO-DESIGN.md §16 K-ids, docs/VERIFY.md #/E ids)"
+              }
+            }
+          }
+        },
+        "shadow_mode": {
+          "type": "boolean",
+          "description": "Equal to contract.risk.shadow_mode; true whenever contract.risk.side_effects is true (the story starts in operate/shadow behind the <slug>_rollout Resource)"
+        },
+        "spikes": {
+          "type": "array",
+          "description": "Proposed when a VERIFY item blocks a design decision; each has its own storyline/work/<slug>/spikes/<id>.md from storyline/templates/spike.md, run in a scratch team",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "question",
+              "blocks",
+              "verify_ref"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,48}$"
+              },
+              "question": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 300
+              },
+              "blocks": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 300,
+                "description": "The design decision it blocks"
+              },
+              "verify_ref": {
+                "type": "string",
+                "pattern": "^(K[0-9]{1,2}|#[0-9]{1,2}|E[0-9]{1,2})$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "description": "What ./scripts/storyline apply validates the baton's `payload` against: the full payload ($defs.payload) when the baton verdict is done or changes_requested, or an empty object when it is needs_human or blocked (baton.schema.json enforces which verdict allows which).",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 0
+        },
+        {
+          "$ref": "#/$defs/payload"
+        }
+      ]
+    }
+  }
+}

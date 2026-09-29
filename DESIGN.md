@@ -1,6 +1,6 @@
 # Tines Stories as Code — the scaffold design (DESIGN.md)
 
-_Context: the stories-as-code layer of the Agentic Story Factory Starter Kit (`REPO-DESIGN.md`) · Created 2026-09-24._
+_Context: the stories-as-code layer of the Tines Storyworks Starter Kit (`REPO-DESIGN.md`) · Created 2026-09-24._
 
 **What this is:** the single design for a repository that lets a builder create, review, ship, monitor and roll back Tines Stories from an editor (Cursor or Claude Code) the way a software team ships code. It merges two earlier designs — one written developer-experience-first, one governance-first — into one. Where they disagreed, the resolution is stated in §2.3 and nowhere else is the losing option carried forward.
 

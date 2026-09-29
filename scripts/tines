@@ -19,7 +19,7 @@ usage() {
 usage: ./scripts/tines <subcommand> [args]
 
   export <slug> [--env dev] [--draft ID] [--out FILE]          GET  /api/v1/stories/{id}/export (normalised)
-                    (--out only under .sdlc/, stories/<slug>/, or $RUNNER_TEMP and .tines/drift/ in CI; --raw only in CI)
+                    (--out only under .storyline/, stories/<slug>/, or $RUNNER_TEMP and .tines/drift/ in CI; --raw only in CI)
   webhook-url <slug> [--env dev] [--story-id ID] [--action NAME]   GET  /api/v1/stories/{id}/export, in memory:
                     ONE Webhook's path and secret, printed (masked) only when GITHUB_ACTIONS=true
   import-draft <slug> --env ENV [--draft-name N] [--dry-run]    POST /api/v1/stories/import (versionReplace + draft)

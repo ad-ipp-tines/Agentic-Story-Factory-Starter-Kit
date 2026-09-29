@@ -1,0 +1,170 @@
+# storyline/lifecycle/touch-sets.yaml — the ONLY paths each phase, crew member and lifecycle script may write.
+#
+# Spec: REPO-DESIGN.md §4.6 (per phase) and §5.1 / §5.3 (per crew member), completed with the paths the build loop
+# and the scripts already write (each addition is marked "added" with its reason).
+#
+# Readers
+#   ./scripts/storyline apply  — refuses any file or patch outside the baton's touch set (the agent's entry, intersected
+#                           with its phase's entry). It also rejects the baton when constraints.touch_set is wider.
+#   storyline.yml              — repeats the check on every PR diff by branch prefix (`branches`), because Cursor runs no hooks.
+#   ./scripts/storyline check  — touch_sets_resolve: every glob here is well formed and every phase and agent it names
+#                           exists in state-machine.yaml / dispatch-rules.yaml.
+#
+# Glob rules: repo-relative; `<slug>` is the story key; `*` matches one path segment; `**` any depth. No brace
+# expansion — every alternative is listed on its own line so any parser reads it the same way.
+# `patches` are allow-listed yq paths, the only structured edits outside the file lists; nothing else in those files
+# may change. The tracker row is always the story's own row, never another story's.
+#
+# Protected paths: a PR whose branch matches no prefix in `branches` may not touch `protected` at all — lifecycle
+# state reaches main only through a lifecycle branch and a human merge (POLICY §2, REPO-DESIGN.md §3.3 row 9).
+
+version: 1
+
+protected:
+  - kit/tracker/**
+  - storyline/work/**
+
+local:            # written by the scripts, never committed (.storyline/ is gitignored; Write and Edit are denied on it)
+  - .storyline/active
+  - .storyline/out/<slug>/**
+
+patches:
+  manifest:        { file: stories/_manifest.yaml,    path: ".stories.<slug>" }
+  manifest_dev_id: { file: stories/_manifest.yaml,    path: ".stories.<slug>.dev.story_id" }    # added: /tines-build-story step 1 records the dev id
+  budget_line:     { file: policies/cost-ceilings.yml, path: '.agents."<slug>/*"' }
+  tracker_row:     { file: kit/tracker/backlog.yaml,  path: '.stories[] | select(.key == "<slug>")' }
+
+phases:
+  intake:
+    files:
+      - storyline/work/<slug>/intake.md
+      - storyline/work/<slug>/events.jsonl
+    patches: [tracker_row]
+  discover:
+    files:
+      - storyline/work/<slug>/discovery.md
+      - storyline/work/<slug>/events.jsonl
+    patches: [tracker_row]                      # added: storyline advance writes discover → design
+  design:
+    files:
+      - storyline/work/<slug>/**
+      - stories/<slug>/README.md
+      - stories/<slug>/story.meta.yaml
+      - stories/<slug>/tests/**
+    patches: [manifest, budget_line, tracker_row]
+  build:
+    files:
+      - stories/<slug>/**                       # via the export (./scripts/tines export), never a hand edit of story.json
+      - storyline/work/<slug>/build-log.md
+      - storyline/work/<slug>/events.jsonl           # added: storyline start and the builder's apply append the build start and end events
+    patches: [manifest_dev_id, budget_line, tracker_row]   # added: /tines-build-story records the dev id and stages the budget line; storyline advance writes build → verify
+  verify:
+    files:
+      - storyline/work/<slug>/verify-report.json
+      - storyline/work/<slug>/events.jsonl
+    patches: [tracker_row]
+  ship:
+    files:
+      - storyline/work/<slug>/ship.md                # written by the CI G5 evidence step, through a PR
+      - storyline/work/<slug>/events.jsonl
+    patches: [tracker_row]
+    revert: "the revert of a rejected commit on rollback/<slug>/* (set `rollback`)"
+  operate:                                      # added: §4.6 lists no operate paths; G6 writes these
+    files:
+      - storyline/work/<slug>/go-live-review.md
+      - storyline/work/<slug>/events.jsonl
+    patches: [tracker_row]
+  improve:
+    files:
+      - storyline/work/<slug>/**
+      - stories/<slug>/tests/**
+      - tines-skills/**
+      - .claude/skills/tines-build-story/references/prompt-pack.md
+      - storyline/logbook.md
+    patches: [tracker_row]                      # added: improve → operate | design is a tracker change
+
+agents:           # a crew member's writes are its entry here AND its phase's entry; apply refuses anything else
+  story-scout:
+    phase: discover
+    files: [storyline/work/<slug>/discovery.md]
+    patches: []
+  story-architect:
+    phase: design
+    files:
+      - storyline/work/<slug>/design.md
+      - storyline/work/<slug>/spikes/*.md            # one file per proposed spike, from storyline/templates/spike.md
+      - stories/<slug>/README.md
+      - stories/<slug>/story.meta.yaml
+    patches: [manifest, budget_line, tracker_row]
+  eval-author:
+    phase: design
+    files:
+      - stories/<slug>/tests/sample-event.json
+      - stories/<slug>/tests/cases/*.json
+      - stories/<slug>/tests/expectations.yaml
+      - storyline/work/<slug>/evals/cases.yaml
+    patches: []
+  tines-builder:
+    phase: build
+    files: [storyline/work/<slug>/build-log.md]      # the report, saved verbatim by apply; the export itself is committed by /tines-build-story
+    patches: []
+  tines-reviewer:
+    phase: verify
+    files: []                                   # findings only; apply saves the raw output under .storyline/out/<slug>/
+    patches: []
+  security-reviewer:
+    phase: verify
+    files: []
+    patches: []
+  story-qa:
+    phase: verify
+    files: []                                   # eval-run writes .storyline/out/<slug>/qa-*.json locally
+    patches: []
+  eval-curator:
+    phase: improve
+    files:
+      - stories/<slug>/tests/cases/*.json
+      - storyline/work/<slug>/evals/cases.yaml
+    patches: []
+  skill-curator:
+    phase: improve
+    files:
+      - tines-skills/**
+      - .claude/skills/tines-build-story/references/prompt-pack.md
+      - storyline/logbook.md
+    patches: []
+
+scripts:          # the deterministic writers. files_from: agent (the baton's agent entry) | phase (the current phase's
+                  # entry) | set:<name>; extra_files are added to it. Each still stays inside its phase's entry.
+  storyline-intake:    { files: [storyline/work/<slug>/intake.md, storyline/work/<slug>/events.jsonl], patches: [tracker_row] }
+  storyline-start:     { files: [storyline/work/<slug>/**], patches: [] }     # creates the folder from templates if missing; also writes .storyline/active
+  storyline-apply:     { files_from: agent, extra_files: [storyline/work/<slug>/events.jsonl, storyline/work/<slug>/retro.md], patches: [tracker_row] }   # retro.md only for its front-matter key `curated`
+  verify-merge:   { files: [storyline/work/<slug>/verify-report.json, storyline/work/<slug>/events.jsonl], patches: [tracker_row] }             # plus .storyline/out/<slug>/rework-<n>.json locally
+  storyline-advance:   { files_from: phase, patches: [tracker_row] }      # in ship, the revert is written on rollback/<slug>/* (set rollback)
+  storyline-gate:      { files: [storyline/work/<slug>/events.jsonl, storyline/work/<slug>/go-live-review.md], patches: [tracker_row] }
+  tracker-fold:   { files_from: "set:tracker", patches: [tracker_row] }   # ./scripts/kit tracker-fold (kit/tracker/README.md)
+  ship-evidence:  { files: [storyline/work/<slug>/ship.md, storyline/work/<slug>/events.jsonl], patches: [] }                                # the G5 evidence step in ship.yml / promote.yml
+
+sets:
+  tracker:        # every branch under tracker/: Flow 2 pulls, repo-side intake, Community-path gate PRs, ship evidence, advance
+    files:
+      - kit/tracker/backlog.yaml
+      - kit/tracker/milestones.yaml
+      - storyline/work/*/intake.md
+      - storyline/work/*/retro.md
+      - storyline/work/*/go-live-review.md
+      - storyline/work/*/ship.md
+      - storyline/work/*/events.jsonl
+  rollback:       # rollback/<slug>/<sha>: restore what is live, record the rejection; never revert lifecycle artifacts
+    files:
+      - stories/<slug>/story.json
+      - stories/<slug>/story.meta.yaml
+      - storyline/work/<slug>/events.jsonl           # append-only: the rejection is a new event, the old ones stay
+    patches: [tracker_row]
+
+branches:         # storyline.yml's touch-set check by branch prefix; first match wins
+  - { prefix: "design/",   pattern: "design/<slug>",          phases: [discover, design] }
+  - { prefix: "story/",    pattern: "story/<slug>/*",         phases: [build, verify] }
+  - { prefix: "improve/",  pattern: "improve/<slug>",         phases: [improve] }      # added: the eval-curator and skill-curator PRs
+  - { prefix: "rollback/", pattern: "rollback/<slug>/*",      set: rollback }
+  - { prefix: "tracker/",  pattern: "tracker/*",              set: tracker }           # e.g. tracker/pull-<run_id>, tracker/intake-<slug>, tracker/<slug>-<gate>, tracker/ship-<slug>-<sha7>

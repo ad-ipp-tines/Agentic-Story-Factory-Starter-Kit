@@ -29,7 +29,7 @@ story_ids: []                      # production story ids; append after the firs
 
 name_patterns:
   - '^\[OPS\]'                     # the ops trio and the ops sub-stories [OPS] 11–17 — changed only through their own change requests
-  - '^\[KIT\]'                     # [KIT] 00 · Run the story factory (stories/kit-factory/). In a customer repository the setup-report
+  - '^\[KIT\]'                     # [KIT] 00 · Launch Storyworks (stories/kit-launch/). In a customer repository the setup-report
                                    # PR (kit.yml → ./scripts/kit apply-config) also appends the hand-imported kit's live id to story_ids
 
 folders:

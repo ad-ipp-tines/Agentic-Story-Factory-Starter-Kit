@@ -6,16 +6,16 @@
 #   ./scripts/kit tracker-json --check                   validate backlog.yaml, milestones.yaml, the field map, the enums
 #   ./scripts/kit tracker-json --push [--full]           {schema_version, source_sha, full, entries[], milestones[], view}
 #     → POST $TRACKER_SYNC_URL                           the tracker_sync_in Webhook (Secret access control) in [KIT] 00
-# Section B takes the sdlc_sync_lock compare-and-swap (a 422 means another sync is running: it skips, and the next
+# Section B takes the storyline_sync_lock compare-and-swap (a 422 means another sync is running: it skips, and the next
 # push or the nightly run re-sends the full state), upserts every row by story_key, clears pending_repo_sync only when
 # git's rev is above the row's pending_base_rev, logs a transition event per phase change and hands it to section D.
 # The nightly run (full: true) also overwrites every non-pending row that differs from git, whatever the revs: git wins.
 # It runs at 02:40 UTC, after tracker-pull.yml's 01:40 snapshot has reported any drift it is about to overwrite.
 #
-# merge-events (push to main only): `./scripts/sdlc advance` writes the design → build (G2) and verify → ship (G4)
+# merge-events (push to main only): `./scripts/storyline advance` writes the design → build (G2) and verify → ship (G4)
 # transitions on the branch BEFORE any merge, so it records them as `decision: pending_merge, actor_kind: ci` — never
 # as a human decision that has not happened. After the merge, this job reads the merged PR's mergedBy (gh pr list,
-# read-only), refuses a self-merge or an unknown merger (the job fails and records nothing), and otherwise appends the
+# read-only), refuses a self-merge or an unknown person who merges (the job fails and records nothing), and otherwise appends the
 # human G2/G4 event (`decision: merged, actor_kind: human`, actor = the CODEOWNER role, refs = the PR number — never the
 # person's login, which stays on the PR in GitHub) to each events.jsonl, on a branch tracker/merge-<pr> opened as a PR
 # with the tracker-bot token (events.jsonl is append-only and reaches main only through a human merge).
@@ -28,8 +28,8 @@
 #   TRACKER_BOT_APP_ID, TRACKER_BOT_PRIVATE_KEY   the tracker-bot GitHub App (merge-events only; as tracker-pull.yml)
 # The script itself refuses to push unless GITHUB_ACTIONS=true and GITHUB_REF=refs/heads/main, so no working-tree
 # tracker is ever pushed past the human merge. Until the URL exists (before provisioning, or in the template
-# repository) the job validates and stops with a notice. Section B's kill switch (sdlc_limits.enabled) also holds the
-# sync until a person enables the runtime specialists.
+# repository) the job validates and stops with a notice. Section B's kill switch (storyline_limits.enabled) also holds the
+# sync until a person enables the runtime crew.
 
 name: tracker-sync
 
@@ -107,7 +107,7 @@ jobs:
             echo
             echo '```json'; cat "$RUNNER_TEMP/sync.json"; echo '```'
             echo
-            echo "Section B skips a run while another sync holds \`sdlc_sync_lock\`, and holds every sync while \`sdlc_limits.enabled\` is false."
+            echo "Section B skips a run while another sync holds \`storyline_sync_lock\`, and holds every sync while \`storyline_limits.enabled\` is false."
           } >> "$GITHUB_STEP_SUMMARY"
 
   merge-events:
@@ -140,8 +140,8 @@ jobs:
           python3 - <<'PY'
           import json, os, pathlib, re, subprocess, sys
           sys.path.insert(0, "scripts")
-          import sdlc_common as C
-          from sdlc_state import codeowner_role
+          import storyline_common as C
+          from storyline_state import codeowner_role
 
           sha = os.environ["GITHUB_SHA"]
           before = os.environ.get("BEFORE") or ""
@@ -152,8 +152,8 @@ jobs:
           def git(*args):
               return subprocess.run(["git", *args], capture_output=True, text=True)
 
-          changed = [p for p in git("diff", "--name-only", "--no-renames", before, sha, "--", "sdlc/work").stdout.split()
-                     if re.fullmatch(r"sdlc/work/[^/]+/events\.jsonl", p)]
+          changed = [p for p in git("diff", "--name-only", "--no-renames", before, sha, "--", "storyline/work").stdout.split()
+                     if re.fullmatch(r"storyline/work/[^/]+/events\.jsonl", p)]
           pending = []
           for path in changed:
               old = git("show", f"{before}:{path}")
@@ -182,11 +182,11 @@ jobs:
               out.write("changed=false\n")
               sys.exit(1)
           n = int(pr["number"])
-          merger = str((pr.get("mergedBy") or {}).get("login") or "")
+          merged_by = str((pr.get("mergedBy") or {}).get("login") or "")
           author = str((pr.get("author") or {}).get("login") or "")
-          if not merger or merger == author:
+          if not merged_by or merged_by == author:
               print(f"::error title=merge-events::PR #{n} carries {len(pending)} pending G2/G4 event(s) but was merged by "
-                    f"{'its author' if merger else 'an unknown account'}: no human G2/G4 event is recorded (no self-merge)")
+                    f"{'its author' if merged_by else 'an unknown account'}: no human G2/G4 event is recorded (no self-merge)")
               out.write("changed=false\n")
               sys.exit(1)
           if os.environ.get("HAS_BOT") != "true":
@@ -207,7 +207,7 @@ jobs:
               C.append_event(slug, event)   # validates against the event schema first
               lines.append(f"- `{slug}`: {ev['gate']} ({ev.get('from_phase')} → {ev.get('to_phase')})")
           body = ["Records the **human** G2/G4 decision — the merge of #%d by a person who is not its author — as an "
-                  "append-only event. `./scripts/sdlc advance` wrote the transition on the branch as `pending_merge` "
+                  "append-only event. `./scripts/storyline advance` wrote the transition on the branch as `pending_merge` "
                   "(`actor_kind: ci`) because no merge had happened yet." % n, "", *lines, "",
                   "<!-- tracker-keys: %s -->" % ",".join(sorted({str(e["story_key"]) for e in pending}))]
           pathlib.Path(os.environ["RUNNER_TEMP"], "merge-body.md").write_text("\n".join(body) + "\n", encoding="utf-8")
@@ -234,7 +234,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           branch="tracker/merge-${MERGED_PR}"
           git switch --quiet -c "$branch"
-          git add -- sdlc/work
+          git add -- storyline/work
           git commit --quiet -m "tracker: record the human merge of #${MERGED_PR} (G2/G4)"
           git push --quiet "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
           url=$(gh pr create --base main --head "$branch" --title "tracker: the human merge of #${MERGED_PR} (G2/G4 event)" \

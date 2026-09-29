@@ -1,11 +1,11 @@
-# Agentic Story Factory Starter Kit
+# Tines Storyworks Starter Kit
 
-A starter kit to set up your factory with an LLM to build, manage, and audit Tines stories via agents.
+A starter kit to set up Storyworks with an LLM to build, manage, and audit Tines stories via agents.
 
 | Part | What it is | Start here |
 |---|---|---|
 | The repository root | Stories and skills as code: editor skills, hooks, CI, policies, the Tines API dispatcher, the ops monitoring stories | this page |
-| [`sdlc/`](sdlc/README.md) | The Story Development Life Cycle: phases, gates and the specialist agents that run them | [`sdlc/README.md`](sdlc/README.md) |
+| [`storyline/`](storyline/README.md) | the Storyline: phases, gates and the crew members that run them | [`storyline/README.md`](storyline/README.md) |
 | [`kit/`](kit/README.md) | The starter kit: one importable story that provisions the repository, skills, tracker, dashboard and model provider | [`kit/README.md`](kit/README.md) |
 
 New here? Start with [the visual tour](docs/study-guides/00-visual-tour.md). Contributing as an AI agent, or reviewing one? Read [`HANDOFF.md`](HANDOFF.md).
@@ -141,23 +141,23 @@ This is the new way of building: not *prompting harder*, but **prompting inside 
 
 ---
 
-## The story factory: `sdlc/` and `kit/`
+## The Storyworks: `storyline/` and `kit/`
 
-This repository is also the **Agentic Story Factory Starter Kit**: the scaffold above, a lifecycle every story follows, and a starter kit that sets a new tenant up from one import. The whole design is [`REPO-DESIGN.md`](REPO-DESIGN.md).
+This repository is also the **Tines Storyworks Starter Kit**: the scaffold above, a lifecycle every story follows, and a starter kit that sets a new tenant up from one import. The whole design is [`REPO-DESIGN.md`](REPO-DESIGN.md).
 
-**The lifecycle in one line:** intake → discover → design → build → verify → ship → operate → improve — each phase with entry and exit criteria, artifacts and a gate; narrow specialist agents do the work, code decides what runs next, and people hold every gate that changes what exists or what runs.
+**The lifecycle in one line:** intake → discover → design → build → verify → ship → operate → improve — each phase with entry and exit criteria, artifacts and a gate; narrow crew members do the work, code decides what runs next, and people hold every gate that changes what exists or what runs.
 
 | Part | Where | What it is |
 |---|---|---|
 | A. The root | `/` | The stories-as-code scaffold this page describes: build through Mode 2, review, ship through change control, monitor, roll back |
-| B. The brain | [`sdlc/`](sdlc/README.md) | The **Story Development Life Cycle**: a state machine, phases with entry and exit criteria, gates, templates, and the specialists it spins up (`/sdlc <slug>`, `./scripts/sdlc`) |
-| C. The starter kit | [`kit/`](kit/README.md) + `stories/kit-factory/` | One importable Tines story with a kickoff Page that provisions the repository and the tenant; the tracker, the dashboard, the model-provider guides and the ten starter stories |
+| B. The Storyline | [`storyline/`](storyline/README.md) | the **Storyline**: a state machine, phases with entry and exit criteria, gates, templates, and the crew it spins up (`/storyline <slug>`, `./scripts/storyline`) |
+| C. The starter kit | [`kit/`](kit/README.md) + `stories/kit-launch/` | One importable Tines story with a kickoff Page that provisions the repository and the tenant; the tracker, the dashboard, the model-provider guides and the ten starter stories |
 
-**The one import.** On Business or Enterprise with two licensed teams, import `stories/kit-factory/story.json` (`[KIT] 00 · Run the story factory`) into the prod team, which is the ops team, and submit its `kickoff` Page. It creates a private repository from this template, commits the tenant config, creates the Tines Agent Skills, the tracker's Record types and the kit Resources, checks the model provider with one test call and one tool call, and writes a setup report with a `[BY HAND]` list. Until the maintainer release replaces it, that `story.json` is a labelled **SKELETON**: never import it. On Community Edition, or with one licensed team, follow the manual path in `kit/docs/community-path.md`.
+**The one import.** On Business or Enterprise with two licensed teams, import `stories/kit-launch/story.json` (`[KIT] 00 · Launch Storyworks`) into the prod team, which is the ops team, and submit its `kickoff` Page. It creates a private repository from this template, commits the tenant config, creates the Tines Agent Skills, the tracker's Record types and the kit Resources, checks the model provider with one test call and one tool call, and writes a setup report with a `[BY HAND]` list. Until the maintainer release replaces it, that `story.json` is a labelled **SKELETON**: never import it. On Community Edition, or with one licensed team, follow the manual path in `kit/docs/community-path.md`.
 
 **One change to the build workflow above:** in Claude Code the Tines Stories MCP server is defined inline in the `tines-builder` subagent, not at user scope, so only the builder loads it; `/tines-connect` completes the OAuth consent in a `claude --agent tines-builder` session.
 
-Start with [`sdlc/README.md`](sdlc/README.md) before a new story, [`kit/README.md`](kit/README.md) to set the factory up, and [`docs/08-agentic-story-factory.md`](docs/08-agentic-story-factory.md) if you are deciding whether to adopt it.
+Start with [`storyline/README.md`](storyline/README.md) before a new story, [`kit/README.md`](kit/README.md) to set Storyworks up, and [`docs/08-storyworks.md`](docs/08-storyworks.md) if you are deciding whether to adopt it.
 
 ---
 
@@ -165,7 +165,7 @@ Start with [`sdlc/README.md`](sdlc/README.md) before a new story, [`kit/README.m
 
 0. **Prerequisites.** A dedicated Tines **team** per environment (never personal space — the AI Agent action is unavailable there and credentials must be shared). Tenant change-control policies **Enable by default** and **Require approval for all changes** switched on. A **team-scoped** API key (Editor role) for the dev team. `jq`, `yq` and `gh` installed; `python3` ≥ 3.9 and `python3 -m pip install -r scripts/requirements.txt` (`requests`, `PyYAML` — the dispatcher runs Python scripts; see `scripts/README.md`). Your Tines user must be a member of the dev team — the Tines Stories MCP server grants nothing you lack.
 1. `cp .env.example .env`, fill `TINES_TENANT` and the dev key, `source .env` (every line in it is `export`ed, so the scripts, Terraform and your editor see the values). Never commit `.env`. Then start `claude` — or Cursor — **from that same shell**, so the session inherits the variables.
-2. Run **`/tines-connect`**. Claude Code: do **not** run `claude mcp add` — the server is defined inline in `.claude/agents/tines-builder.md`, so it loads only for the builder (a user-scope entry would put its tools into every session). From the same shell, start `claude --agent tines-builder`, run `/mcp`, select `tines` and complete the consent screen titled **Tines Stories MCP server** — the inline form is VERIFY; prefer the copy-ready snippet at `https://<your-tenant>.tines.com/mcp` (login required). Cursor: in a separate build-only worktree (`git worktree add ../<repo>-build`, opened as its own workspace for the builder chat only), paste `.cursor/mcp.json.example` into that worktree's `.cursor/mcp.json` — never the global `~/.cursor/mcp.json`, which gives every chat the server; saving triggers OAuth. Until K4 is confirmed, the other specialists run in Claude Code. An API key will not work here.
+2. Run **`/tines-connect`**. Claude Code: do **not** run `claude mcp add` — the server is defined inline in `.claude/agents/tines-builder.md`, so it loads only for the builder (a user-scope entry would put its tools into every session). From the same shell, start `claude --agent tines-builder`, run `/mcp`, select `tines` and complete the consent screen titled **Tines Stories MCP server** — the inline form is VERIFY; prefer the copy-ready snippet at `https://<your-tenant>.tines.com/mcp` (login required). Cursor: in a separate build-only worktree (`git worktree add ../<repo>-build`, opened as its own workspace for the builder chat only), paste `.cursor/mcp.json.example` into that worktree's `.cursor/mcp.json` — never the global `~/.cursor/mcp.json`, which gives every chat the server; saving triggers OAuth. Until K4 is confirmed, the other crew run in Claude Code. An API key will not work here.
 3. Smoke test: "Using the Tines MCP server, list the teams I can see and the stories in each." Record the tool names your client shows in `docs/VERIFY.md` (item 1).
 4. Add the slug to `stories/_manifest.yaml` (`new: true` if the story does not exist yet in prod); copy `stories/_template/` to `stories/<slug>/`; fill `story.meta.yaml` — credentials by **name** only, and they must already exist in the dev team.
 5. **`/tines-build-story <slug> "<what to build>"`**. Say yes to the plan. The skill ends with Validate, a test event, and the by-hand list (Send to Story access, event retention, change control on for a new story, Record types, the AI Agent token alert on the Status tab). **A new story gets its dev id here, not from an import:** the builder creates it in the dev team through `/mcp`, so record that id with `./scripts/tines manifest-set-dev-id <slug> <id>` (it writes only `dev.story_id` under the slug in `stories/_manifest.yaml`; an id is not a secret) before the next step — `/tines-export` stops on a dev id of `0`.
@@ -279,7 +279,7 @@ When you confirm an item, update `docs/VERIFY.md` and state what changed in the 
 - [`policies/POLICY.md`](policies/POLICY.md) — before shipping.
 - [`docs/00-why-stories-as-code.md`](docs/00-why-stories-as-code.md) — for someone deciding whether to adopt this.
 - [`DESIGN.md`](DESIGN.md) — the whole specification, including the agentic monitoring story in §5.
-- [`sdlc/README.md`](sdlc/README.md) — before starting a new story: the lifecycle, its gates and its commands.
-- [`kit/README.md`](kit/README.md) — before setting the story factory up in a tenant: the plans it supports, the one import, what it creates.
+- [`storyline/README.md`](storyline/README.md) — before starting a new story: the lifecycle, its gates and its commands.
+- [`kit/README.md`](kit/README.md) — before setting the Storyworks up in a tenant: the plans it supports, the one import, what it creates.
 
 Conventions that hold everywhere in this repository: placeholders (`<your-tenant>`, `<org>`, `0` for ids, `*.example.invalid`, documentation-range IPs) and never real values; no customer names, people or tenant hostnames; product names exactly as Tines writes them; guards live in the story, not in prompts; one story at a time; never hand-edit `story.json`; no secrets, ever.

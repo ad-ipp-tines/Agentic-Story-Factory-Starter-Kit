@@ -2,8 +2,8 @@
  * routes/StoryDetail.tsx — one story: its state, transition timeline, gate decisions, the brief and retro drafts,
  * the planner's proposals, and links to its PRs and change request.
  *
- * REPO-DESIGN.md §9.2 row "Story detail": data = useRecordsQuery(sdlc_events, story_key) plus the row's ARTIFACT
- * and JSON fields. Everything a runtime specialist wrote (brief, retro, proposal) is a PROPOSAL: a human accepts it
+ * REPO-DESIGN.md §9.2 row "Story detail": data = useRecordsQuery(storyline_events, story_key) plus the row's ARTIFACT
+ * and JSON fields. Everything a runtime crew member wrote (brief, retro, proposal) is a PROPOSAL: a human accepts it
  * on the Page, and it reaches git only through a merged tracker PR. Drafts and use-case text are untrusted and are
  * rendered as plain text, never as markup.
  */
@@ -81,7 +81,7 @@ function Facts({ row }: { row: BacklogRow }) {
     ["Build PR", <LinkOrText key="b" value={row.build_pr} empty="not yet" />],
     ["Change request", <LinkOrText key="c" value={row.change_request_id} empty="none" />],
     ["Tracker rev", `${row.rev}${row.pending_repo_sync ? " (a Tines-side change is waiting for its tracker PR)" : ""}`],
-    ["Runtime specialist", row.specialist_due !== "none" ? `${row.specialist_due}: ${row.specialist_status}` : row.specialist_status || "idle"],
+    ["Runtime crew member", row.specialist_due !== "none" ? `${row.specialist_due}: ${row.specialist_status}` : row.specialist_status || "idle"],
   ];
   return (
     <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
@@ -108,7 +108,7 @@ export default function StoryDetail() {
   if (!row) {
     return (
       <p className="text-sm text-slate-500">
-        {backlog.loading ? "Loading…" : `No story ${key} in sdlc_backlog (it may not have synced yet).`}{" "}
+        {backlog.loading ? "Loading…" : `No story ${key} in storyline_backlog (it may not have synced yet).`}{" "}
         <a className="text-sky-700 underline" href={href("/")}>Back to the board</a>
       </p>
     );

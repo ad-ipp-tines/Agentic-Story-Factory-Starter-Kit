@@ -2,13 +2,13 @@
 
 _Spec: REPO-DESIGN.md §6.5 (state, field ownership, Flow 1, Flow 2, conflicts, events), §7.4 (section B), §7.7 (section E), §8.1 (the Record types), §8.3 (these files), §11.1 (milestones)._
 
-**Git is the system of record.** `backlog.yaml`, `milestones.yaml` and `sdlc/work/<slug>/events.jsonl` are the truth. The `sdlc_backlog`, `sdlc_milestones` and `sdlc_events` Record types in the ops team are the **queryable projection** that the dashboards and the runtime specialists read, and the **inbox** for decisions made in Tines. Nothing in Tines becomes true in git until a person merges a pull request.
+**Git is the system of record.** `backlog.yaml`, `milestones.yaml` and `storyline/work/<slug>/events.jsonl` are the truth. The `storyline_backlog`, `storyline_milestones` and `storyline_events` Record types in the ops team are the **queryable projection** that the dashboards and the runtime crew read, and the **inbox** for decisions made in Tines. Nothing in Tines becomes true in git until a person merges a pull request.
 
 | File | What it is | Validated by |
 |---|---|---|
 | [`backlog.yaml`](backlog.yaml) | One row per story: phase, status, open gate, attempt, owner, dates, credit estimate, links, `rev` | [`backlog.schema.json`](backlog.schema.json) |
 | [`milestones.yaml`](milestones.yaml) | The day-1, week-1 and week-4 milestones (§11.1) | [`milestones.schema.json`](milestones.schema.json) |
-| [`field-map.yaml`](field-map.yaml) | YAML key ↔ Record field ↔ `result_type` ↔ owner side, for all three Record types | `./scripts/sdlc check` (`field_map_complete`) |
+| [`field-map.yaml`](field-map.yaml) | YAML key ↔ Record field ↔ `result_type` ↔ owner side, for all three Record types | `./scripts/storyline check` (`field_map_complete`) |
 
 ## Who may write here
 
@@ -16,15 +16,15 @@ Nobody by hand. The editor's Write and Edit tools are denied on `kit/tracker/**`
 
 | Writer | Writes | When |
 |---|---|---|
-| `./scripts/sdlc` (`intake`, `apply`, `advance`, `gate`) | the story's own row, and its events | every repo-side lifecycle step |
+| `./scripts/storyline` (`intake`, `apply`, `advance`, `gate`) | the story's own row, and its events | every repo-side lifecycle step |
 | `./scripts/kit tracker-fold` | rows and milestones changed in Tines, `intake.md` / `retro.md` drafts, the events Tines logged | `tracker-pull.yml` (Flow 2) |
 | `./scripts/kit apply-config --targets tracker` | empty due dates and target dates, the `provider` of AI rows | `kit.yml`, after the day-1 config commit |
 
-Every change reaches `main` through a PR on a lifecycle branch (`design/`, `story/`, `improve/`, `tracker/`, `rollback/`; `sdlc/lifecycle/touch-sets.yaml` `branches`). A branch outside those prefixes may not touch `kit/tracker/**` at all.
+Every change reaches `main` through a PR on a lifecycle branch (`design/`, `story/`, `improve/`, `tracker/`, `rollback/`; `storyline/lifecycle/touch-sets.yaml` `branches`). A branch outside those prefixes may not touch `kit/tracker/**` at all.
 
 ## `rev` — the rule that keeps two writers from colliding
 
-- Every row and every milestone carries `rev`. **A PR that changes a row sets its `rev` to `main`'s rev + 1.** The scripts compute it from `origin/main` (`git show origin/main:kit/tracker/backlog.yaml`), so several writes on one branch still land as one bump. `sdlc.yml` rejects any other value, so two branches cannot land the same bump: the second one rebases.
+- Every row and every milestone carries `rev`. **A PR that changes a row sets its `rev` to `main`'s rev + 1.** The scripts compute it from `origin/main` (`git show origin/main:kit/tracker/backlog.yaml`), so several writes on one branch still land as one bump. `storyline.yml` rejects any other value, so two branches cannot land the same bump: the second one rebases.
 - **A Tines-side write never bumps `rev`.** It marks the Record `pending_repo_sync: true` with `pending_base_rev` = the row's `rev` at the time of the write.
 - Section B clears `pending_repo_sync` **only when git's `rev` is greater than `pending_base_rev`** — once a merge after the Tines-side write has reached `main` — and then overwrites the Tines-owned fields with git's values. Equal revs never clear a pending change.
 
@@ -32,15 +32,15 @@ Every change reaches `main` through a PR on a lifecycle branch (`design/`, `stor
 
 Each field has one author side (`field-map.yaml`, column `owner`):
 
-| Owner side | Fields (sdlc_backlog) | Reaches the other side by |
+| Owner side | Fields (storyline_backlog) | Reaches the other side by |
 |---|---|---|
 | **git** | `title, use_case, mode, tier, library_seed_id, credit_estimate, links, prod_story_id, live_since, attempt, rev`; `phase / status / open_gate` for repo-side gates (G1, G2, G3, G4, G5a, G5b) | Flow 1 |
-| **tines** | `owner`, `target_date`; `phase / status / open_gate` for Tines-side gates (G0, G6, G7, the GB release, GX) and the D9 improve trigger; accepted planner proposals; the `brief` and `retro` drafts (→ `sdlc/work/<slug>/intake.md`, `retro.md`) | Flow 2 (a PR a human merges) |
+| **tines** | `owner`, `target_date`; `phase / status / open_gate` for Tines-side gates (G0, G6, G7, the GB release, GX) and the D9 improve trigger; accepted planner proposals; the `brief` and `retro` drafts (→ `storyline/work/<slug>/intake.md`, `retro.md`) | Flow 2 (a PR a human merges) |
 | **tines-only** | `specialist_due, specialist_status, proposal, outbox_seq, acked_seq, pending_repo_sync, pending_base_rev, last_actor, last_transition_at` | never mirrored to git |
 
 `tracker-fold` takes from Tines only the fields whose owner side is `tines`. A Tines value for a git-owned field is ignored and listed in the PR body. A new row (a use case added on a Page or through the App) is the one exception: all of its mirrored fields come from Tines, and the design phase names it properly later (`title`'s `[PREFIX] NN · Verb noun` rule is enforced by the contract schema at G1, not here).
 
-**One instrument per gate.** A Tines-side gate is decided on the `gate_decision` Page when Records are entitled, and through `/sdlc-gate` only on the Community path. The two sides never decide the same gate, so they never write the same fields. `tracker-fold` accepts a Tines-side `phase / status / open_gate` change only when the pull carries the matching event (a human `gate_decision` for G0, G6, G7 or GX; a `budget` event for GB; an `escalation` for GX; the D9 `transition` with `decision: improve_trigger`; or `brief_writer` opening G0 inside intake) **and** `sdlc/lifecycle/state-machine.yaml` allows the move from the row's current phase.
+**One instrument per gate.** A Tines-side gate is decided on the `gate_decision` Page when Records are entitled, and through `/storyline-gate` only on the Community path. The two sides never decide the same gate, so they never write the same fields. `tracker-fold` accepts a Tines-side `phase / status / open_gate` change only when the pull carries the matching event (a human `gate_decision` for G0, G6, G7 or GX; a `budget` event for GB; an `escalation` for GX; the D9 `transition` with `decision: improve_trigger`; or `brief_writer` opening G0 inside intake) **and** `storyline/lifecycle/state-machine.yaml` allows the move from the row's current phase.
 
 ## Flow 1 — repo → Records (`tracker-sync.yml`, on merge)
 
@@ -63,7 +63,7 @@ The payload, in Record field names (`field-map.yaml`), empty values as `null`, t
 }
 ```
 
-Section B takes the `sdlc_sync_lock` compare-and-swap (a 422 means another sync is running: skip; the next push or the nightly run re-sends the full state), lists `sdlc_backlog` (up to 500 rows), then creates, updates or records a conflict per entry, logs a `transition` event for every phase change (→ section D), does the same for milestones, and releases the lock. B3 refuses more than 500 entries, keys that are not slugs, and enum values not in the `sdlc_state_machine` Resource. `view` is the `kit_tracker_view` value that B10 writes **only when Records are not entitled** (`kit/resources/README.md`). On the nightly run (`full: true`) B6 also overwrites every row that is not pending with git's values wherever they differ, whatever the revs: git wins.
+Section B takes the `storyline_sync_lock` compare-and-swap (a 422 means another sync is running: skip; the next push or the nightly run re-sends the full state), lists `storyline_backlog` (up to 500 rows), then creates, updates or records a conflict per entry, logs a `transition` event for every phase change (→ section D), does the same for milestones, and releases the lock. B3 refuses more than 500 entries, keys that are not slugs, and enum values not in the `storyline_state_machine` Resource. `view` is the `kit_tracker_view` value that B10 writes **only when Records are not entitled** (`kit/resources/README.md`). On the nightly run (`full: true`) B6 also overwrites every row that is not pending with git's values wherever they differ, whatever the revs: git wins.
 
 ## Flow 2 — Records → repo (`tracker-pull.yml`, every 30 minutes)
 
@@ -91,9 +91,9 @@ The pull answer section E returns (E3):
 ```
 
 - `changes{}` is keyed by **Record field names**; `base_rev` is the row's `pending_base_rev`.
-- `events[]` are `sdlc_events` rows; `tracker-fold` converts them to `events.jsonl` lines (`model` → `model_reported`, `ref` → `refs`, `source_sha` → `sha`, `created_at` → `ts`), validates each against `sdlc/observability/event.schema.json`, and drops duplicates. **The outbox returns roles, never emails**: `actor_ref` is in-tenant only, and if it arrives anyway it is dropped before anything is written.
+- `events[]` are `storyline_events` rows; `tracker-fold` converts them to `events.jsonl` lines (`model` → `model_reported`, `ref` → `refs`, `source_sha` → `sha`, `created_at` → `ts`), validates each against `storyline/observability/event.schema.json`, and drops duplicates. **The outbox returns roles, never emails**: `actor_ref` is in-tenant only, and if it arrives anyway it is dropped before anything is written.
 - An item whose text looks like a secret, or carries a real email address, is **refused and not acknowledged**; it stays in the outbox and shows in every PR body until it is fixed in Tines.
-- Drafts: `brief_md` becomes `sdlc/work/<slug>/intake.md` unless a person has already edited it or the story has left intake; `retro_md` becomes `retro.md` only when there is none. The PR body says when a draft was kept out.
+- Drafts: `brief_md` becomes `storyline/work/<slug>/intake.md` unless a person has already edited it or the story has left intake; `retro_md` becomes `retro.md` only when there is none. The PR body says when a draft was kept out.
 - When a fold changes nothing, the workflow still acknowledges the items (they are already true in git).
 
 ### Conflicts
@@ -102,10 +102,10 @@ A field is a **conflict** when the item's `base_rev` is below the row's current 
 
 ### Closed or abandoned tracker PRs
 
-Every Tines-side transition is **provisional** until its tracker PR merges. The nightly `tracker-pull.yml` run sends `{op: "snapshot", open_pr_keys[]}` — the keys of open PRs from `tracker/*` branches, read from each PR body's `<!-- tracker-keys: … -->` line — and section E (E5) clears `pending_repo_sync` on every pending row whose key has no open PR and whose Tines-side write is older than `sdlc_limits.pending_reset_hours` (24). It returns every row and the `kit_state.hash_<name>` values, and `./scripts/kit tracker-fold --snapshot` compares them with git:
+Every Tines-side transition is **provisional** until its tracker PR merges. The nightly `tracker-pull.yml` run sends `{op: "snapshot", open_pr_keys[]}` — the keys of open PRs from `tracker/*` branches, read from each PR body's `<!-- tracker-keys: … -->` line — and section E (E5) clears `pending_repo_sync` on every pending row whose key has no open PR and whose Tines-side write is older than `storyline_limits.pending_reset_hours` (24). It returns every row and the `kit_state.hash_<name>` values, and `./scripts/kit tracker-fold --snapshot` compares them with git:
 
 - **rows that differ** (and are not pending) → a `tracker-drift` PR (branch `tracker/drift-<run_id>`) that proposes the Records values. Merge it to accept the tenant's state; close it and the nightly full Flow 1 sync (which runs after the snapshot) restores git's values.
-- **Resources that differ** from the ones generated from `main` (`resources_in_sync`: `sdlc_state_machine`, `kit_catalog`, `kit_config`, `sdlc_limits`) → the run fails with the list; re-run `kit-sync.yml`. The snapshot carries the hashes as `kit_state`'s own `hash_<name>` keys (`{rows[], milestones[], kit_state: {hash_sdlc_state_machine: "<sha256 hex>", …}}`); both `tracker-fold --snapshot` and `./scripts/sdlc check resources_in_sync --snapshot FILE` read every `hash_<name>` key they find and compare it with `resource_hash` of the bundle's `resources[].value` (`kit/resources/README.md`).
+- **Resources that differ** from the ones generated from `main` (`resources_in_sync`: `storyline_state_machine`, `kit_catalog`, `kit_config`, `storyline_limits`) → the run fails with the list; re-run `kit-sync.yml`. The snapshot carries the hashes as `kit_state`'s own `hash_<name>` keys (`{rows[], milestones[], kit_state: {hash_storyline_state_machine: "<sha256 hex>", …}}`); both `tracker-fold --snapshot` and `./scripts/storyline check resources_in_sync --snapshot FILE` read every `hash_<name>` key they find and compare it with `resource_hash` of the bundle's `resources[].value` (`kit/resources/README.md`).
 
 ## Commands
 
@@ -120,4 +120,4 @@ The network forms (`tracker-json --push`, `tracker-fold --pull | --ack | --snaps
 
 ## Without Records (the Community path)
 
-There is no kit story, no Flow 1 and no Flow 2: the tracker lives in git only. `./scripts/sdlc` writes it, Tines-side gates are decided with `/sdlc-gate` (the Page does not exist), and `./scripts/kit apply-config --targets tracker` fills the milestone due dates and story target dates from `kit/tenant/config.yaml` (`kit/docs/community-path.md`).
+There is no kit story, no Flow 1 and no Flow 2: the tracker lives in git only. `./scripts/storyline` writes it, Tines-side gates are decided with `/storyline-gate` (the Page does not exist), and `./scripts/kit apply-config --targets tracker` fills the milestone due dates and story target dates from `kit/tenant/config.yaml` (`kit/docs/community-path.md`).

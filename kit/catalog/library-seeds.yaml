@@ -9,7 +9,7 @@
 #     candidate_seed_ids that are not here, so the agent cannot introduce an id.
 #   - the kickoff and add_use_case Pages build their Option lists from kit_catalog, never from free text.
 #   - the lifecycle check discovery_complete fails a discovery note that cites an id not in this file, and
-#     `./scripts/sdlc check` (catalog_ids_verified) fails a tracker row whose library_seed_id is not here.
+#     `./scripts/storyline check` (catalog_ids_verified) fails a tracker row whose library_seed_id is not here.
 #   - `./scripts/kit bundle` copies this file into the kit_catalog Resource; kit-sync.yml keeps the Resource current.
 #
 # A seed is a starting point to READ, never a story to ship. Importing a seed into the Seeds folder is [BY HAND]

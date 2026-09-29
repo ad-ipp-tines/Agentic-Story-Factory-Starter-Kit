@@ -46,44 +46,44 @@ agents:                             # one line per AI Agent action in the repo; 
     model: fast                     # tool-less Task mode -> the fast model, cheap by construction
     provider: tenant-default
 
-  # [KIT] 00 · Run the story factory (stories/kit-factory/; REPO-DESIGN.md §3.3 row 10, §7.3, §7.6, §8.2, §12).
+  # [KIT] 00 · Launch Storyworks (stories/kit-launch/; REPO-DESIGN.md §3.3 row 10, §7.3, §7.6, §8.2, §12).
   # Five AI Agent actions, all tool-less except llm_tool_probe's one probe tool. The token numbers are starting values
-  # for the Status-tab alerts (set by hand; mirrored in stories/kit-factory/story.meta.yaml ai.agents[].token_alert):
+  # for the Status-tab alerts (set by hand; mirrored in stories/kit-launch/story.meta.yaml ai.agents[].token_alert):
   # tune them from the dev copy's observed tokens before go-live. runs_per_day_max and credits_per_run_max of the
-  # three runtime specialists are mirrored into the sdlc_limits Resource by ./scripts/kit bundle and kit-sync.yml
-  # (sdlc_limits.runtime.<agent>), where section D's Triggers enforce them before any model call (D2). The two probes
+  # three runtime crew are mirrored into the storyline_limits Resource by ./scripts/kit bundle and kit-sync.yml
+  # (storyline_limits.runtime.<agent>), where section D's Triggers enforce them before any model call (D2). The two probes
   # run only during provisioning (section F), so their caps are enforced by these lines and the token alerts.
   # `provider` is filled by ./scripts/kit apply-config from kit/tenant/config.yaml (tenant-default | custom:<name>);
   # on a custom or local provider the credits are 0 and the bill is billed_cost (AGENTS.md §8).
-  kit-factory/planner:
+  kit-launch/planner:
     daily_tokens_notify: 60000      # Status tab -> Notify (≈ 4 runs × a backlog snapshot, with headroom)
     daily_tokens_disable: 120000    # Status tab -> Disable action
-    credits_per_run_max: 2          # sdlc_limits.runtime.planner.credits_per_run_max
-    runs_per_day_max: 4             # sdlc_limits.runtime.planner.runs_per_day_max (D2 under_cap)
+    credits_per_run_max: 2          # storyline_limits.runtime.planner.credits_per_run_max
+    runs_per_day_max: 4             # storyline_limits.runtime.planner.runs_per_day_max (D2 under_cap)
     model: fast                     # PINNED on the action: its skill is an agentic capability, unpinned it would run on smart
     provider: tenant-default
-  kit-factory/brief_writer:
+  kit-launch/brief_writer:
     daily_tokens_notify: 100000     # ≈ 20 intake briefs a day, with headroom
     daily_tokens_disable: 200000
-    credits_per_run_max: 2          # sdlc_limits.runtime.brief_writer.credits_per_run_max
-    runs_per_day_max: 20            # sdlc_limits.runtime.brief_writer.runs_per_day_max
+    credits_per_run_max: 2          # storyline_limits.runtime.brief_writer.credits_per_run_max
+    runs_per_day_max: 20            # storyline_limits.runtime.brief_writer.runs_per_day_max
     model: fast                     # PINNED on the action (skill story-brief-writing)
     provider: tenant-default
-  kit-factory/retro_writer:
+  kit-launch/retro_writer:
     daily_tokens_notify: 75000      # ≈ 5 retros a day over ops evidence, with headroom
     daily_tokens_disable: 150000
-    credits_per_run_max: 3          # sdlc_limits.runtime.retro_writer.credits_per_run_max
-    runs_per_day_max: 5             # sdlc_limits.runtime.retro_writer.runs_per_day_max
+    credits_per_run_max: 3          # storyline_limits.runtime.retro_writer.credits_per_run_max
+    runs_per_day_max: 5             # storyline_limits.runtime.retro_writer.runs_per_day_max
     model: fast                     # PINNED on the action (skill story-retrospective)
     provider: tenant-default
-  kit-factory/llm_probe:
+  kit-launch/llm_probe:
     daily_tokens_notify: 5000       # one short call per provisioning run
     daily_tokens_disable: 10000
     credits_per_run_max: 1
     runs_per_day_max: 5             # REPO-DESIGN.md §7.3
     model: fast                     # NOT pinned: tool-less, so it runs on the tenant's fast default — which is what it checks
     provider: tenant-default
-  kit-factory/llm_tool_probe:
+  kit-launch/llm_tool_probe:
     daily_tokens_notify: 10000      # one call with one tool round trip per provisioning run
     daily_tokens_disable: 20000
     credits_per_run_max: 2

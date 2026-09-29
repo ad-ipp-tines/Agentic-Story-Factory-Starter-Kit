@@ -1,0 +1,389 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tines-storyworks/storyline/crew/contracts/story-scout.schema.json",
+  "title": "story-scout — input requirements and output payload",
+  "description": "Spec: REPO-DESIGN.md §5.3.1. $defs.input is layered over baton.schema.json#/$defs/input (the inputs the showrunner must list); $defs.output validates the output baton's `payload`. The scout's one file is storyline/work/<slug>/discovery.md (from storyline/templates/discovery-note.md, front matter included). Schema cannot read the catalog: ./scripts/storyline apply and the check discovery_complete verify that every cited Library id is in kit/catalog/library-seeds.yaml.",
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "phase",
+        "inputs"
+      ],
+      "properties": {
+        "phase": {
+          "const": "discover"
+        },
+        "inputs": {
+          "type": "array",
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "intake_brief"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "library_catalog"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "tenant_config"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "manifest"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "candidate_ids_unverified",
+        "reuse_decision",
+        "constraints",
+        "by_hand"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "id",
+              "name",
+              "url",
+              "fit",
+              "why",
+              "entitlements_needed",
+              "verified_by"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "library",
+                  "repo",
+                  "tenant"
+                ]
+              },
+              "id": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "library: the catalog's integer id · repo: the slug · tenant: the dev-team story id seen through ./scripts/tines live-activity"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "As recorded in the catalog, the repo README or the tenant — never paraphrased into a new name"
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 300,
+                "description": "library: https://www.tines.com/library/stories/<id>/ · repo: stories/<slug>/README.md · tenant: null (no tenant hostname in the repo)"
+              },
+              "fit": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "why": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 400
+              },
+              "entitlements_needed": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "records",
+                    "apps",
+                    "ai_agent_action",
+                    "cases",
+                    "change_control",
+                    "tunnel",
+                    "workbench",
+                    "workflow_as_api",
+                    "slack",
+                    "other"
+                  ]
+                }
+              },
+              "verified_by": {
+                "type": "string",
+                "enum": [
+                  "catalog",
+                  "repo",
+                  "tenant"
+                ],
+                "description": "library → catalog · repo → repo · tenant → tenant (a published dev-team story; an extension of REPO-DESIGN.md §5.3.1's catalog|repo so a tenant candidate is representable)"
+              },
+              "reference_only": {
+                "type": "boolean",
+                "description": "true when the catalog marks the seed reference only (never recommended for shipping)"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "source": {
+                      "const": "library"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "verified_by": {
+                      "const": "catalog"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "source": {
+                      "const": "repo"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9-]{1,64}$"
+                    },
+                    "verified_by": {
+                      "const": "repo"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "source": {
+                      "const": "tenant"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "verified_by": {
+                      "const": "tenant"
+                    },
+                    "url": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "candidate_ids_unverified": {
+          "type": "array",
+          "maxItems": 10,
+          "description": "Ids seen but NOT in the catalog. Never cited, never recommended; a human adds any of them to library-seeds.yaml through a CODEOWNER PR",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "url",
+              "why"
+            ],
+            "properties": {
+              "id": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 300
+              },
+              "why": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 300
+              }
+            }
+          }
+        },
+        "reuse_decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "target",
+            "why"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "import_seed",
+                "reuse_story",
+                "build_new"
+              ]
+            },
+            "target": {
+              "type": [
+                "integer",
+                "string"
+              ],
+              "description": "import_seed: a catalog id (integer) · reuse_story: a repo slug · build_new: \"\""
+            },
+            "why": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 600
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "import_seed"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "target": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "reuse_story"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9-]{1,64}$"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "build_new"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "target": {
+                    "const": ""
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 300
+          },
+          "description": "What design must respect: credentials that must pre-exist in both teams (by name), entitlement gaps, platform limits"
+        },
+        "by_hand": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 300
+          },
+          "description": "[BY HAND] steps no API and no Mode 2 session can do; import_seed always lists the Seeds-folder import"
+        }
+      }
+    },
+    "output": {
+      "description": "What ./scripts/storyline apply validates the baton's `payload` against: the full payload ($defs.payload) when the baton verdict is done or changes_requested, or an empty object when it is needs_human or blocked (baton.schema.json enforces which verdict allows which).",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 0
+        },
+        {
+          "$ref": "#/$defs/payload"
+        }
+      ]
+    }
+  }
+}

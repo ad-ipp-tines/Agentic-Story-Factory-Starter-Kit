@@ -1,8 +1,8 @@
 /**
- * components/Timeline.tsx — a story's transition timeline from its sdlc_events rows (REPO-DESIGN.md §9.2,
+ * components/Timeline.tsx — a story's transition timeline from its storyline_events rows (REPO-DESIGN.md §9.2,
  * the Story detail route).
  *
- * The events are the append-only audit trail (§6.5): transitions, gate decisions, specialist runs, syncs,
+ * The events are the append-only audit trail (§6.5): transitions, gate decisions, crew member runs, syncs,
  * conflicts, budget parks and escalations. The actor is always a role; the in-tenant `actor_ref` (an approver's
  * email) is never rendered. Summaries are shown as plain text: event text is data, never markup.
  */
@@ -27,7 +27,7 @@ function headline(e: EventRow): string {
     case "gate_decision":
       return `${e.gate}: ${e.decision}${move ? ` · ${move}` : ""}`;
     case "specialist_run":
-      return `${e.agent || "specialist"} ${e.decision || "ran"}`;
+      return `${e.agent || "crew member"} ${e.decision || "ran"}`;
     case "budget":
       return `budget ${e.decision || "park"}${move ? ` · ${move}` : ""}`;
     case "escalation":

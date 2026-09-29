@@ -8,7 +8,7 @@
 # path (no kit story) you copy this file to kit/tenant/config.yaml and fill it in by hand (kit/docs/community-path.md).
 #
 # It NEVER holds: the tenant host, an email address, a credential value, a token or a webhook URL. The tenant host
-# lives only in the kit_config Resource inside the tenant; approver emails live only in the sdlc_approvers Resource;
+# lives only in the kit_config Resource inside the tenant; approver emails live only in the storyline_approvers Resource;
 # credentials are referenced by NAME.
 #
 # Readers
@@ -16,8 +16,8 @@
 #                                  policies/cost-ceilings.yml (team ids, the kit agents' provider), and the tracker
 #                                  (empty due dates and target dates, the provider of AI rows)       — kit.yml
 #   ./scripts/kit sync-resources → the kit_config Resource (+ tenant_host from the workflow environment) — kit-sync.yml
-#   ./scripts/sdlc               → entitlements (G1's fit check; dispatch-rules.yaml runtime_specialists_enabled)
-#   story-scout, story-architect → entitlement fit (sdlc/lifecycle/dispatch-rules.yaml inputs, kind tenant_config)
+#   ./scripts/storyline               → entitlements (G1's fit check; dispatch-rules.yaml runtime_specialists_enabled)
+#   story-scout, story-architect → entitlement fit (storyline/lifecycle/dispatch-rules.yaml inputs, kind tenant_config)
 # Change it only by PR (CODEOWNERS: /kit/** → security-platform); every merge re-syncs kit_config.
 
 schema_version: 1
@@ -61,7 +61,7 @@ credentials:                                  # NAMES of credentials that must e
 
 github:
   org: "<org>"
-  repo: "tines-story-factory"
+  repo: "tines-storyworks"
   template_repo: "<template-owner>/<template-repo>"
 
 ops_record_types:                             # [BY HAND] after day 1: the ops trio's Record type ids, added by PR, so

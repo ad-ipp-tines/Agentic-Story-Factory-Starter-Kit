@@ -8,17 +8,17 @@
 #   p · production       TINES_ENV=prod is refused, and so is any number (or digits-only string) in the tool input that
 #                        equals a production or never-touch story id, a never-touch team id, or the manifest's prod
 #                        team_id / folder_id — the same input-based check as guard-mcp.sh 1 and 2a, applied here too
-#                        (and before step 0, so SDLC_ENFORCE=0 never lifts it)
-#   0 · SDLC_ENFORCE=0   the scratch-story escape hatch — logged, then allowed (guard-mcp.sh runs on the same call and
+#                        (and before step 0, so STORYLINE_ENFORCE=0 never lifts it)
+#   0 · STORYLINE_ENFORCE=0   the scratch-story escape hatch — logged, then allowed (guard-mcp.sh runs on the same call and
 #                        still mirrors and checks it)
-#   1 · active story     .sdlc/active (local, written only by `./scripts/sdlc start`) names a kebab-case story key
+#   1 · active story     .storyline/active (local, written only by `./scripts/storyline start`) names a kebab-case story key
 #   2 · state on main    that story's row in `git show origin/main:kit/tracker/backlog.yaml` — never the working tree —
-#                        is build/active or build/rework. The editor's Write and Edit tools are denied on .sdlc/**,
-#                        kit/tracker/** and sdlc/work/** (.claude/settings.json), so no file edit can open /mcp without
+#                        is build/active or build/rework. The editor's Write and Edit tools are denied on .storyline/**,
+#                        kit/tracker/** and storyline/work/** (.claude/settings.json), so no file edit can open /mcp without
 #                        G1 and G2 having merged
 #   3 · the caller       the hook input identifies the `tines-builder` subagent. Whether a hook CAN tell which subagent
 #                        is calling is VERIFY K2 — until it is confirmed, K2_CALLER_JQ below stays empty and EVERY
-#                        mcp__tines__* call is denied. Day-1 check: run one builder call; .sdlc/phase-gate.log records the
+#                        mcp__tines__* call is denied. Day-1 check: run one builder call; .storyline/phase-gate.log records the
 #                        hook input's top-level keys and scalar values (never tool_input); if a field names the subagent,
 #                        set K2_CALLER_JQ to its jq path by PR (security-platform review) and record K2 in docs/VERIFY.md
 #   4 · one story        no number (or digits-only string) in the tool input equals another slug's dev or prod story id
@@ -59,14 +59,14 @@ input=$(cat)
 root="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 cd "$root"
 
-log() { # $1 decision, $2 reason — to .sdlc/phase-gate.log (local, gitignored); never tool_input values
-  mkdir -p .sdlc 2>/dev/null || return 0
+log() { # $1 decision, $2 reason — to .storyline/phase-gate.log (local, gitignored); never tool_input values
+  mkdir -p .storyline 2>/dev/null || return 0
   if command -v jq >/dev/null 2>&1; then
     jq -c --arg ts "$(date -u +%FT%TZ)" --arg decision "$1" --arg reason "$2" --arg slug "${slug:-}" \
       '{ts: $ts, decision: $decision, reason: $reason, slug: $slug, tool: (.tool_name // ""),
         input_keys: (keys? // []),
         scalars: (with_entries(select(.key != "tool_input" and .key != "tool_response" and ((.value | type) as $t | $t == "string" or $t == "number" or $t == "boolean")) | .value |= (tostring | .[0:120])) )}' \
-      <<<"$input" >> .sdlc/phase-gate.log 2>/dev/null || true
+      <<<"$input" >> .storyline/phase-gate.log 2>/dev/null || true
   fi
 }
 
@@ -99,16 +99,16 @@ if [[ -n "$prod_protected" ]]; then
 fi
 
 # 0 · the scratch-story escape hatch
-if [[ "${SDLC_ENFORCE:-1}" == "0" ]]; then
-  log allow "SDLC_ENFORCE=0"
-  echo "phase-gate: SDLC_ENFORCE=0 — the lifecycle gate is OFF for this call (scratch story only); the production check above still ran, and guard-mcp.sh still mirrors and checks the call" >&2
+if [[ "${STORYLINE_ENFORCE:-1}" == "0" ]]; then
+  log allow "STORYLINE_ENFORCE=0"
+  echo "phase-gate: STORYLINE_ENFORCE=0 — the lifecycle gate is OFF for this call (scratch story only); the production check above still ran, and guard-mcp.sh still mirrors and checks the call" >&2
   exit 0
 fi
 
 # 1 · the active story
-[[ -r .sdlc/active ]] || block "no active story: /mcp opens only for the story in build — run /sdlc <slug>, then ./scripts/sdlc start <slug>"
-slug=$(tr -d '[:space:]' < .sdlc/active)
-[[ "$slug" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || block ".sdlc/active does not hold a story key — run ./scripts/sdlc start <slug>"
+[[ -r .storyline/active ]] || block "no active story: /mcp opens only for the story in build — run /storyline <slug>, then ./scripts/storyline start <slug>"
+slug=$(tr -d '[:space:]' < .storyline/active)
+[[ "$slug" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || block ".storyline/active does not hold a story key — run ./scripts/storyline start <slug>"
 
 # 2 · the row on origin/main (git wins; the working tree never opens /mcp)
 git rev-parse --verify --quiet 'origin/main^{commit}' >/dev/null 2>&1 \
@@ -118,15 +118,15 @@ tracker=$(git show 'origin/main:kit/tracker/backlog.yaml' 2>/dev/null) \
 state=$(yq -r ".stories[] | select(.key == \"$slug\") | ((.phase // \"\") + \"/\" + (.status // \"\"))" <<<"$tracker" 2>/dev/null) \
   || block "could not read $slug from the tracker on origin/main with yq — refused (fail closed)"
 state=$(head -n1 <<<"$state")
-[[ -n "$state" ]] || block "$slug has no row in the tracker on origin/main — run /sdlc $slug"
+[[ -n "$state" ]] || block "$slug has no row in the tracker on origin/main — run /storyline $slug"
 case "$state" in
   build/active|build/rework) ;;
-  *) block "$slug is in $state on origin/main; /mcp opens after G1 and G2 (the design PR merged) — run /sdlc $slug" ;;
+  *) block "$slug is in $state on origin/main; /mcp opens after G1 and G2 (the design PR merged) — run /storyline $slug" ;;
 esac
 
 # 3 · the caller must be tines-builder (VERIFY K2)
 if [[ -z "$K2_CALLER_JQ" ]]; then
-  block "VERIFY K2 is not confirmed: this hook cannot yet tell which subagent is calling, so it denies every mcp__tines__* call. Day-1 check: the hook input's top-level keys are in .sdlc/phase-gate.log; once a field naming the subagent is confirmed, set K2_CALLER_JQ in .claude/hooks/phase-gate.sh by PR. SDLC_ENFORCE=0 is for a scratch story only."
+  block "VERIFY K2 is not confirmed: this hook cannot yet tell which subagent is calling, so it denies every mcp__tines__* call. Day-1 check: the hook input's top-level keys are in .storyline/phase-gate.log; once a field naming the subagent is confirmed, set K2_CALLER_JQ in .claude/hooks/phase-gate.sh by PR. STORYLINE_ENFORCE=0 is for a scratch story only."
 fi
 caller=$(jq -r "($K2_CALLER_JQ) // \"\" | tostring" <<<"$input" 2>/dev/null) || block "could not read the caller with K2_CALLER_JQ — refused (fail closed)"
 [[ "$caller" == "$BUILDER" ]] || block "only $BUILDER may call the Tines Stories MCP server (this caller: ${caller:-unidentified}); delegate the build to the $BUILDER subagent"

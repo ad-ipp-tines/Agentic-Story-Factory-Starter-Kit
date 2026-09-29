@@ -41,7 +41,7 @@ Webhook path and secret into the model's context or onto disk.
 
 Where ``--out`` may write
 -------------------------
-Only under ``.sdlc/`` (local, gitignored), ``$RUNNER_TEMP`` (CI), or the story's
+Only under ``.storyline/`` (local, gitignored), ``$RUNNER_TEMP`` (CI), or the story's
 own ``stories/<slug>/`` folder — and, in GitHub Actions only, ``.tines/drift/``
 (drift.yml's working folder). Anything else is refused, so an export can never
 overwrite ``.claude/``, ``policies/`` or another story (a symlink is resolved
@@ -52,7 +52,7 @@ first).
 ``./scripts/tines webhook-url <slug> [--env dev] [--story-id ID] [--action NAME]``
 reads the story's export in memory and returns ONLY the named Webhook action's
 ``path`` and ``secret`` — never a file, never the rest of the raw export.
-``sdlc_eval.py`` imports ``entry_webhook()`` for the same thing and keeps the
+``storyline_eval.py`` imports ``entry_webhook()`` for the same thing and keeps the
 values in memory; the command-line form prints them only when
 GITHUB_ACTIONS=true, after ``::add-mask::`` lines for both.
 
@@ -64,7 +64,7 @@ Examples
 --------
     ./scripts/export_story.py example-enrich-ip
     ./scripts/export_story.py example-enrich-ip --env dev --draft 1234
-    ./scripts/export_story.py ops-error-router --story-id 42 --out .sdlc/x.json --no-stamp
+    ./scripts/export_story.py ops-error-router --story-id 42 --out .storyline/x.json --no-stamp
     TINES_ENV=prod TINES_ALLOW_PROD=1 ./scripts/export_story.py example-enrich-ip --env prod \\
         --out .tines/drift/example-enrich-ip.json --no-stamp      # the nightly drift check
 
@@ -118,21 +118,21 @@ def _within(path: Path, base: Path) -> bool:
 
 
 def check_out_path(root: Path, slug: str, out: Path) -> Path:
-    """Refuse an ``--out`` outside ``.sdlc/``, ``$RUNNER_TEMP`` (CI) or ``stories/<slug>/`` (and ``.tines/drift/``, CI only).
+    """Refuse an ``--out`` outside ``.storyline/``, ``$RUNNER_TEMP`` (CI) or ``stories/<slug>/`` (and ``.tines/drift/``, CI only).
 
     Without this, ``--out`` is an arbitrary file write that sidesteps the editor's Write/Edit deny rules (for example
     over ``.claude/settings.json`` or ``policies/never-touch.yml``). The target is resolved first, so a symlink or a
     ``..`` cannot lead out of an allowed folder.
     """
     target = (out if out.is_absolute() else Path.cwd() / out).resolve()
-    allowed = [(root / ".sdlc").resolve(), story_dir(root, slug).resolve()]
+    allowed = [(root / ".storyline").resolve(), story_dir(root, slug).resolve()]
     if in_ci():
         if os.environ.get("RUNNER_TEMP"):
             allowed.append(Path(os.environ["RUNNER_TEMP"]).resolve())
         allowed.append((root / ".tines" / "drift").resolve())   # drift.yml's working folder
     if not any(_within(target, base) for base in allowed):
         raise ScriptError(
-            f"--out {out}: an export is written only under .sdlc/, stories/{slug}/ or (in GitHub Actions) $RUNNER_TEMP "
+            f"--out {out}: an export is written only under .storyline/, stories/{slug}/ or (in GitHub Actions) $RUNNER_TEMP "
             "or .tines/drift/ — never over repository configuration"
         )
     return target
@@ -185,7 +185,7 @@ def main_webhook_url(argv: list[str]) -> int:
     if not in_ci():
         raise ScriptError(
             "webhook-url prints a live Webhook path and secret, so it runs only in GitHub Actions (GITHUB_ACTIONS=true); "
-            "locally, ./scripts/sdlc eval-run reads them in memory"
+            "locally, ./scripts/storyline eval-run reads them in memory"
         )
     story_id = args.story_id
     if story_id is None:

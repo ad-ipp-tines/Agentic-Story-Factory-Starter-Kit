@@ -1,6 +1,6 @@
 ---
 name: backlog-planning
-description: Sequences a team's Tines story backlog against its onboarding milestones, work-in-progress limit and monthly AI credit ceiling, and proposes owner, target-date, credit-band and mode-hint changes with the snapshot facts behind each. Used by the tool-less planner agent of the story factory whenever the backlog changes or the weekly planning run is due.
+description: Sequences a team's Tines story backlog against its onboarding milestones, work-in-progress limit and monthly AI credit ceiling, and proposes owner, target-date, credit-band and mode-hint changes with the snapshot facts behind each. Used by the tool-less planner agent of the Storyworks whenever the backlog changes or the weekly planning run is due.
 license: Proprietary
 compatibility: Tines AI Agent action (Task mode), tool-less, fast model pinned on the action
 metadata:
@@ -21,9 +21,9 @@ What that means for planning:
 | Row looks like | What moves it | Can the team act today? |
 |---|---|---|
 | `open_gate` G0, G6, G7 or GX | a named person decides on a Page | only the decider; keep its rank, say who decides |
-| `open_gate` G2 or G4 | a person merges the design or build PR | only the reviewer and merger |
+| `open_gate` G2 or G4 | a person merges the design or build PR | only the reviewer and the person who merges |
 | `open_gate` G5a or G5b | a GitHub reviewer releases the first import, or an approver approves the change request | only the approver |
-| `phase` discover, design, build, verify with status `active` or `rework` | the team and its specialists | yes |
+| `phase` discover, design, build, verify with status `active` or `rework` | the team and its crew | yes |
 | `status` blocked | the owner resolves an escalation | the owner |
 | `phase` parked | a person unparks it (budget or WIP) | only after a budget or WIP change |
 | `phase` operate | nothing — it is live; it returns to improve on a trigger | no planning work, unless a milestone counts it |

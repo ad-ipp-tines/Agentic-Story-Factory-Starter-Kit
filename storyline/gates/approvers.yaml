@@ -1,0 +1,84 @@
+# storyline/gates/approvers.yaml — which GitHub team's APPROVING REVIEW a pull request needs when it adds a
+# gate_decision event for a gate to storyline/work/<slug>/events.jsonl.
+#
+# Spec: REPO-DESIGN.md §4.5 rule 2. Owned by @<org>/security-platform (CODEOWNERS: /storyline/gates/approvers.yaml).
+# [BY HAND] on day 1: replace <org> here and in .github/CODEOWNERS with your GitHub organisation, and the team slugs
+# with your own if they differ.
+#
+# Authority comes from this versioned file, never from a chat reply. Its Tines-side twin is the storyline_approvers
+# Resource (approver emails; never committed), which the gate_decision Page checks against the submitter's email on
+# every decision. The two never decide the same gate: a Tines-side gate is decided on the Page when Records are
+# entitled, and through /storyline-gate only on the Community path (REPO-DESIGN.md §6.5, "One instrument per gate").
+#
+# How storyline.yml reads it (on every PR):
+#   1. find each gate_decision event the PR ADDS to any storyline/work/*/events.jsonl (events are append-only, so a
+#      changed or deleted line fails the PR outright);
+#   2. look up that event's `gate` here — an unknown gate, or a gate with `event_allowed: false`, fails the PR;
+#   3. require, per `require`, an approving review from a member of the listed team(s) who is not the PR author and
+#      whose review is on the PR's head commit.
+#   require: any → one approving review from any listed team · all → one approving review from EACH listed team.
+# It is not a replacement for CODEOWNERS or branch protection: G2 and G4 are the merge itself, and CODEOWNERS already
+# requires a review for every path a lifecycle PR touches.
+
+version: 1
+
+teams:
+  builders: "@<org>/tines-builders"             # story owners and builders
+  security_platform: "@<org>/security-platform" # security reviewer, budgets, production release
+
+gates:
+  G0:
+    event_allowed: true
+    teams: [builders]
+    require: any
+    reaches_git_by: "the tracker PR (Flow 2) after a decision on the gate_decision Page; or a tracker/<slug>-G0 PR from /storyline-gate on the Community path"
+  G1:
+    event_allowed: false        # deterministic: its record is storyline ready's JSON and the storyline.yml check, never an event a person adds
+    teams: []
+    require: any
+    reaches_git_by: "not an event"
+  G2:
+    event_allowed: false        # the decision is the merge of the design PR (CODEOWNERS + branch protection); the PR carries a transition event, not a gate_decision
+    teams: [builders]
+    require: any
+    reaches_git_by: "the merge of design/<slug>"
+  G3:
+    event_allowed: true
+    teams: [builders]
+    require: any
+    reaches_git_by: "the build PR (story/<slug>/*), which carries the event /storyline-gate recorded"
+  G4:
+    event_allowed: false        # the decision is the merge of the build PR; verify-merge's result is verify-report.json
+    teams: [builders]
+    require: any
+    reaches_git_by: "the merge of story/<slug>/*"
+  G5a:
+    event_allowed: true
+    teams: [security_platform]
+    require: any
+    reaches_git_by: "the G5 evidence PR from ship.yml (tracker/ship-<slug>-<sha7>); the release itself is the GitHub production environment's required reviewer"
+  G5b:
+    event_allowed: true
+    teams: [security_platform]
+    require: any
+    reaches_git_by: "the G5 evidence PR from ship.yml or promote.yml; the approval itself happens in Tines"
+  G6:
+    event_allowed: true
+    teams: [builders, security_platform]
+    require: all                # the owner and an approver
+    reaches_git_by: "the tracker PR after the gate_decision Page; or a tracker/<slug>-G6 PR on the Community path"
+  G7:
+    event_allowed: true
+    teams: [builders, security_platform]
+    require: all                # the owner and platform
+    reaches_git_by: "the tracker PR after the gate_decision Page; or a tracker/<slug>-G7 PR on the Community path"
+  GB:
+    event_allowed: true         # the release (decision unpark); the park itself is a `budget` event written by a script
+    teams: [security_platform]
+    require: any
+    reaches_git_by: "the tracker PR after the Page's unpark option; or a tracker/<slug>-GB PR on the Community path"
+  GX:
+    event_allowed: true
+    teams: [builders]
+    require: any
+    reaches_git_by: "the tracker PR after the gate_decision Page; or a tracker/<slug>-GX PR on the Community path"

@@ -22,21 +22,21 @@ import { useRecords, useRecordsQuery, useResource } from "@tines/apps"; // VERIF
 // ─── Record types, Resources and Pages the App reads ────────────────────────────────────────────────────────────
 
 export const RECORD_TYPES = {
-  backlog: "sdlc_backlog",
-  events: "sdlc_events",
-  milestones: "sdlc_milestones",
+  backlog: "storyline_backlog",
+  events: "storyline_events",
+  milestones: "storyline_milestones",
 } as const;
 
 export const RESOURCES = {
-  stateMachine: "sdlc_state_machine",
+  stateMachine: "storyline_state_machine",
   catalog: "kit_catalog",
   config: "kit_config",
 } as const;
 
-/** The tracker_home root Page's URL identifier (stories/kit-factory/pages/tracker-home.md). Mid-story Pages
+/** The tracker_home root Page's URL identifier (stories/kit-launch/pages/tracker-home.md). Mid-story Pages
  * (gate_decision, add_use_case) have per-run URLs, so the App links to this root Page instead. Whether the
  * identifier survives story import is VERIFY K8. */
-export const TRACKER_HOME_PAGE = "story-factory-tracker";
+export const TRACKER_HOME_PAGE = "storyworks-tracker";
 
 export const TINES_SIDE_GATES = ["G0", "G6", "G7", "GX"] as const; // decided on the gate_decision Page (§7.8)
 
@@ -108,7 +108,7 @@ export interface MilestoneRow {
   pending_repo_sync: boolean;
 }
 
-/** The parts of the sdlc_state_machine Resource the App reads (kit/resources/sdlc_state_machine.example.json). */
+/** The parts of the storyline_state_machine Resource the App reads (kit/resources/storyline_state_machine.example.json). */
 export interface StateMachine {
   phases: string[];
   all_phases: string[];

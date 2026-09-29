@@ -4,7 +4,7 @@
 # pull      every 30 minutes (and on dispatch):
 #             ./scripts/kit tracker-fold --pull           POST {op: "pull"} to $TRACKER_OUTBOX_URL (the response-enabled
 #                                                         tracker_outbox Webhook; K15) and fold the answer into
-#                                                         kit/tracker/*.yaml, sdlc/work/<slug>/{intake.md, retro.md,
+#                                                         kit/tracker/*.yaml, storyline/work/<slug>/{intake.md, retro.md,
 #                                                         events.jsonl}; conflicts keep git's value and are marked
 #             → branch tracker/pull-<run_id> → PR labelled `tracker`, opened with the tracker-bot GitHub App token
 #             ./scripts/kit tracker-fold --ack            POST {op: "ack", items[{key, outbox_seq}]} (E4)
@@ -19,7 +19,7 @@
 #             Resources that differ → the job fails with the list: re-run kit-sync.yml
 #
 # Why a GitHub App token and never GITHUB_TOKEN: GitHub starts no pull_request workflows for a PR opened with
-# GITHUB_TOKEN, so sdlc.yml — the one required check — would never report on the tracker PR. The tracker-bot App is
+# GITHUB_TOKEN, so storyline.yml — the one required check — would never report on the tracker PR. The tracker-bot App is
 # installed on this repository only, with write access to contents and pull requests (exact permission headings as
 # for K11); its token (POST /app/installations/{id}/access_tokens, one hour) is minted by actions/create-github-app-token.
 #
@@ -98,7 +98,7 @@ jobs:
           set -euo pipefail
           ./scripts/kit tracker-fold --pull --summary "$RUNNER_TEMP/fold.json" --pr-body "$RUNNER_TEMP/body.md"
           ./scripts/kit tracker-json --check
-          if [ -n "$(git status --porcelain -- kit/tracker sdlc/work)" ]; then
+          if [ -n "$(git status --porcelain -- kit/tracker storyline/work)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -127,7 +127,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch --quiet -c "$branch"
-          git add -- kit/tracker sdlc/work
+          git add -- kit/tracker storyline/work
           git commit --quiet -m "tracker: fold Tines-side changes (tracker-pull run ${GITHUB_RUN_ID})"
           git push --quiet "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
           # the `tracker` label is created by hand (the [BY HAND] list, REPO-DESIGN.md §7.2); this workflow never creates labels
@@ -216,7 +216,7 @@ jobs:
             --report "$RUNNER_TEMP/snapshot.json" --pr-body "$RUNNER_TEMP/drift.md"
           rc=$?
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 4 ]; then exit "$rc"; fi
-          if [ -n "$(git status --porcelain -- kit/tracker sdlc/work)" ]; then
+          if [ -n "$(git status --porcelain -- kit/tracker storyline/work)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -254,7 +254,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch --quiet -c "$branch"
-          git add -- kit/tracker sdlc/work
+          git add -- kit/tracker storyline/work
           git commit --quiet -m "tracker-drift: Records differ from git (snapshot run ${GITHUB_RUN_ID})"
           git push --quiet "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
           # the `tracker-drift` label is created by hand (the [BY HAND] list); without it the PR opens unlabelled

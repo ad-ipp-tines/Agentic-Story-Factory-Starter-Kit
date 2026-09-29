@@ -3,17 +3,17 @@
 # Spec: REPO-DESIGN.md §11.1. Schema: milestones.schema.json. Field ↔ Record mapping: field-map.yaml.
 # kit/ONBOARDING.md is the runbook that mirrors this file; change the two together.
 #
-# Seeded in Tines by [KIT] 00 A22 (three sdlc_milestones rows with due dates = provisioning + due_offset_days, UTC),
+# Seeded in Tines by [KIT] 00 A22 (three storyline_milestones rows with due dates = provisioning + due_offset_days, UTC),
 # and brought back here by tracker-pull.yml → ./scripts/kit tracker-fold. On the Community path (no Records),
 # ./scripts/kit apply-config fills an empty due_date from kit/tenant/config.yaml provisioned_at.
 # `status`, `due_date`, `evidence_ref` and `owner` may change in Tines (the App or a Record edit) and reach git by
 # PR; `title` and `criteria` change only here, by PR. Never edit by hand; the writers are ./scripts/kit and
-# ./scripts/sdlc. Owners are roles.
+# ./scripts/storyline. Owners are roles.
 
 version: 1
 milestones:
   - id: day-1
-    title: "Day 1: the factory is provisioned and safe to build in"
+    title: "Day 1: Storyworks is provisioned and safe to build in"
     criteria:
       - "The setup report is ok, or partial with every failure explained"
       - "The repository and the tenant config commit exist"
@@ -39,7 +39,7 @@ milestones:
       - "Story #2 is live and is every production story's recipient"
       - "[OPS] 10, the ops sweep, is live"
       - "The tracker round trip is proven: a Tines-side G0 reached main by PR"
-      - "review.yml runs (called by sdlc.yml)"
+      - "review.yml runs (called by storyline.yml)"
       - "Token alerts are set on the kit's agents"
       - "Two or three more stories are in design or build"
     status: not_started

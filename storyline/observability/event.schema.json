@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tines-storyworks/storyline/observability/event.schema.json",
+  "title": "Lifecycle event (one line of storyline/work/<slug>/events.jsonl)",
+  "description": "The typed, append-only transition event. Every write through ./scripts/storyline or ./scripts/kit tracker-fold appends exactly one line; the same shape becomes an storyline_events Record (kit/tracker/field-map.yaml maps the keys). Nothing ever rewrites or deletes a line: storyline.yml fails a PR that changes an existing line. `actor` is always a role, never a person or an email; the approver's email stays in the Record's actor_ref inside the tenant and never reaches git. Enums for phases and gates come from storyline/lifecycle/state-machine.yaml (checked by phase_enum_in_sync). Spec: REPO-DESIGN.md §6.5; the catalogue of who writes which event is storyline/observability/README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ts", "story_key", "event_type", "actor", "actor_kind", "summary", "tracker_rev"],
+  "properties": {
+    "ts": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$", "description": "UTC, always with Z (Records drop offsets)" },
+    "story_key": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+    "event_type": { "type": "string", "enum": ["transition", "gate_decision", "specialist_run", "sync", "conflict", "budget", "escalation"] },
+    "from_phase": { "$ref": "#/$defs/phase_or_null" },
+    "to_phase": { "$ref": "#/$defs/phase_or_null" },
+    "gate": { "type": ["string", "null"], "enum": ["G0", "G1", "G2", "G3", "G4", "G5a", "G5b", "G6", "G7", "GB", "GX", null] },
+    "decision": { "type": ["string", "null"], "maxLength": 64, "description": "Depends on event_type. gate_decision: a decision word from state-machine.yaml gate_info.<gate>.decisions. transition: that decision word; the check that moved the row (intake_complete, discovery_complete, build_evidence, improve_trigger, change_needed, retire_candidate, retro_closed); pending_merge for the G2 or G4 move written on the branch before the merge; intake or seeded for a new row. specialist_run: started / finished, proposed, or the crew member's verdict (done, changes_requested, blocked, pass). escalation: opened (GX). budget: park (GB). sync: folded, apply_config, pending (a G5 request not decided yet). conflict: kept_git, tracker_drift. Null when none applies" },
+    "actor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^@]+$",
+      "description": "A role (story owner role, a GitHub team slug, a crew member's name, a script or workflow name) — never a person, never an email"
+    },
+    "actor_kind": { "type": "string", "enum": ["human", "agent", "ci", "story"], "description": "human = a person's decision · agent = a crew member's applied output · ci = deterministic code (a workflow, or a ./scripts/storyline step such as verify-merge or a check) · story = the Tines story ([KIT] 00 sections B–E)" },
+    "agent": { "type": ["string", "null"], "maxLength": 64, "description": "The crew member (IDE or Tines-side) or script that ran; null when none did" },
+    "model_tier": { "type": ["string", "null"], "enum": ["strong", "standard", "fast", "smart", null], "description": "strong|standard|fast for IDE crew; fast|smart for Tines-side agents (the tenant defaults)" },
+    "model_reported": { "type": ["string", "null"], "maxLength": 128, "description": "The model as the client or the AI Agent event metadata shows it; never a hard-coded id" },
+    "turns": { "type": ["integer", "null"], "minimum": 0 },
+    "credits_used": { "type": ["number", "null"], "minimum": 0, "description": "Tines AI credits for a Tines-side run; null for IDE crew (they spend the editor's plan)" },
+    "summary": { "type": "string", "maxLength": 1500 },
+    "refs": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 300 },
+      "description": "Repo paths, PR numbers (#n), change-request ids, Record ids — never a URL carrying a secret"
+    },
+    "tracker_rev": { "type": "integer", "minimum": 0, "description": "The row's rev this event produces or was recorded at (storyline/GLOSSARY.md, rev)" },
+    "sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{7,40}$", "description": "The commit the event is about (a build, a merge, a ship), or null" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event_type": { "const": "transition" } } },
+      "then": { "required": ["from_phase", "to_phase"] }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "gate_decision" } } },
+      "then": {
+        "required": ["gate", "decision"],
+        "properties": { "gate": { "type": "string" }, "decision": { "type": "string" }, "actor_kind": { "const": "human" } }
+      }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "specialist_run" } } },
+      "then": { "required": ["agent"], "properties": { "agent": { "type": "string" } } }
+    }
+  ],
+  "$defs": {
+    "phase_or_null": {
+      "type": ["string", "null"],
+      "enum": ["intake", "discover", "design", "build", "verify", "ship", "operate", "improve", "parked", "rejected", "retired", null]
+    }
+  }
+}

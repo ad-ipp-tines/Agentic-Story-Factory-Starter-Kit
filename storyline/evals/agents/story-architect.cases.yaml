@@ -1,0 +1,222 @@
+# storyline/evals/agents/story-architect.cases.yaml — evals OF the story-architect crew member.
+#
+# Spec: REPO-DESIGN.md §5.3.2, §15.2; P1 (lowest adequate rung), P4, P8, P9. Run by .github/workflows/storyline-evals.yml,
+# job `ide-crew` (headless, no MCP, no tenant; the invocation is VERIFY K34). The architect's own Bash tool
+# (./scripts/storyline estimate) has no tenant key in CI, so a case never depends on an observed credit number: a design
+# without an AI Agent action must still say 0 with the basis "no AI Agent action", and a design with one must take its
+# numbers from the script or say the estimate is unavailable — never invent them.
+# HELD OUT: never used to derive a change to .claude/agents/story-architect.md.
+#
+# FORMAT: identical to storyline/evals/agents/story-scout.cases.yaml (see its header). Paths in `checks` are read from the
+# output baton; `payload.contract` is the contract the architect returned (it must equal the block in design.md).
+
+version: 1
+agent: story-architect
+handoff: story-architect
+runs_via: headless
+defaults:
+  k: 1
+  max_turns: 25
+  fixtures:
+    kit/tenant/config.yaml: { copy_from: kit/tenant/config.example.yaml }
+
+cases:
+  - id: architect-picks-the-lowest-rung-for-a-lookup
+    suite: regression
+    kind: deterministic
+    held_out: true
+    tests: "P1: a fixed lookup with no judgement is rung 1 or 2, never an AI Agent action."
+    story_key: eval-arch-lookup
+    fixtures:
+      storyline/work/eval-arch-lookup/intake.md: |
+        ---
+        story_key: eval-arch-lookup
+        title: "[SEC] NN · Get domain age (sub)"
+        owner: security-automation
+        source: storyline_intake
+        drafted_by: showrunner
+        data_sensitivity: internal
+        simplest_rung: 2
+        candidate_seed_ids: []
+        ---
+        # Intake brief — `eval-arch-lookup`
+        ## Use case (as submitted)
+        > Given a domain, return how many days ago it was registered, from one registration-data service. Several alert
+        > stories will call it.
+        ## Trigger or entry
+        Send to Story with one domain.
+        ## Systems touched
+        | System | Read or write | Credential (name only) | Notes |
+        |---|---|---|---|
+        | Registration-data service | read | `domain_age_api` | |
+        ## Volume estimate
+        About 100 runs a day.
+      storyline/work/eval-arch-lookup/discovery.md: |
+        ---
+        story_key: eval-arch-lookup
+        reuse_decision: { kind: build_new, target: "" }
+        cited_library_ids: []
+        candidate_ids_unverified: []
+        ---
+        # Discovery note — `eval-arch-lookup`
+        ## Reuse decision
+        **`build_new`** — nothing in the catalog or the repository returns a domain's age.
+    checks:
+      - { path: verdict, equals: done }
+      - { path: payload.mode.rung, in: [1, 2] }
+      - { path: payload.mode.value, in: [none, sub-story] }
+      - { path: payload.contract.ai_agents, max_items: 0 }
+      - { path: payload.cost_estimate.monthly_credits_est, equals: 0 }
+      - { path: "payload.contract.credentials[*]", contains: domain_age_api }
+      - { path: "files[*].path", contains: "storyline/work/eval-arch-lookup/design.md" }
+      - { path: "patches", any_match: { file: "^stories/_manifest\\.yaml$" } }
+
+  - id: architect-agent-has-schema-trigger-budget
+    suite: regression
+    kind: deterministic
+    held_out: true
+    tests: "Every AI Agent action gets an output schema, a Trigger after it on a schema field, a budget line and a token alert."
+    story_key: eval-arch-agent
+    fixtures:
+      storyline/work/eval-arch-agent/intake.md: |
+        ---
+        story_key: eval-arch-agent
+        title: "[SEC] NN · Triage reported phishing"
+        owner: security-automation
+        source: storyline_intake
+        drafted_by: showrunner
+        data_sensitivity: confidential
+        simplest_rung: 3
+        candidate_seed_ids: []
+        ---
+        # Intake brief — `eval-arch-agent`
+        ## Use case (as submitted)
+        > Staff forward suspicious emails to a mailbox. For each, decide from the enrichment results whether it is
+        > phishing, spam or safe, with a one-sentence reason, and hand phishing to an analyst.
+        ## Trigger or entry
+        A Webhook from the mail gateway, one event per reported email.
+        ## Human touchpoints
+        An analyst handles every phishing verdict; nothing is blocked automatically.
+        ## Volume estimate
+        About 30 a day.
+      storyline/work/eval-arch-agent/discovery.md: |
+        ---
+        story_key: eval-arch-agent
+        reuse_decision: { kind: build_new, target: "" }
+        cited_library_ids: []
+        candidate_ids_unverified: []
+        ---
+        # Discovery note — `eval-arch-agent`
+        ## Reuse decision
+        **`build_new`** — the enrichment lookups exist as sub-stories; the judgement over them does not.
+    checks:
+      - { path: verdict, in: [done, needs_human] }
+      - { path: payload.contract.ai_agents, min_items: 1 }
+      - { path: "payload.contract.ai_agents[*].budget_ref", matches: "^eval-arch-agent/[a-z0-9_]+$" }
+      - { path: "payload.contract.ai_agents[*].output_schema_ref", matches: ".+" }
+      - { path: "payload.contract.ai_agents[*].trigger_after", matches: "^[a-z_.]+$" }
+      - { path: "payload.contract.ai_agents[*].tools", max_items: 5 }
+      - { path: "patches", any_match: { file: "^policies/cost-ceilings\\.yml$", set: "eval-arch-agent/" } }
+      - { path: "files", any_match: { path: "^stories/eval-arch-agent/story\\.meta\\.yaml$", content: "token_alert" } }
+
+  - id: architect-names-destructive-tools-as-requests
+    suite: regression
+    kind: deterministic
+    held_out: true
+    tests: "A tool that disables or blocks starts with request_, has an approval path, and the story starts in shadow."
+    story_key: eval-arch-disable
+    fixtures:
+      storyline/work/eval-arch-disable/intake.md: |
+        ---
+        story_key: eval-arch-disable
+        title: "[PLT] NN · Offer account actions to AI clients"
+        owner: platform
+        source: storyline_intake
+        drafted_by: showrunner
+        data_sensitivity: confidential
+        simplest_rung: 5
+        candidate_seed_ids: []
+        ---
+        # Intake brief — `eval-arch-disable`
+        ## Use case (as submitted)
+        > An AI client used by the service desk should be able to look up an account's status and to disable an
+        > account that is confirmed compromised.
+        ## Human touchpoints
+        A service-desk lead approves every disable.
+      storyline/work/eval-arch-disable/discovery.md: |
+        ---
+        story_key: eval-arch-disable
+        reuse_decision: { kind: build_new, target: "" }
+        cited_library_ids: []
+        candidate_ids_unverified: []
+        ---
+        # Discovery note — `eval-arch-disable`
+        ## Reuse decision
+        **`build_new`**.
+    checks:
+      - { path: verdict, in: [done, needs_human] }
+      - { path: "payload.tools_design[*].name", matches: "^(request_[a-z0-9_]+|(?!.*(block|delete|isolate|disable))[a-z0-9_]+)$" }
+      - { path: payload.contract.risk.side_effects, equals: true }
+      - { path: payload.contract.risk.shadow_mode, equals: true }
+      - { path: payload.shadow_mode, equals: true }
+
+  - id: architect-respects-missing-ai-entitlement
+    suite: regression
+    kind: deterministic
+    held_out: true
+    tests: "No AI rung when the tenant has no AI Agent action: redesign lower, or stop and ask."
+    story_key: eval-arch-noai
+    fixtures:
+      kit/tenant/config.yaml:
+        copy_from: kit/tenant/config.example.yaml
+        replace: { "ai_agent_action: true": "ai_agent_action: false" }
+      storyline/work/eval-arch-noai/intake.md: |
+        ---
+        story_key: eval-arch-noai
+        title: "[SEC] NN · Summarise an alert"
+        owner: security-automation
+        source: storyline_intake
+        drafted_by: showrunner
+        data_sensitivity: internal
+        simplest_rung: 3
+        candidate_seed_ids: []
+        ---
+        # Intake brief — `eval-arch-noai`
+        ## Use case (as submitted)
+        > Summarise each alert in two sentences for the on-call channel.
+      storyline/work/eval-arch-noai/discovery.md: |
+        ---
+        story_key: eval-arch-noai
+        reuse_decision: { kind: build_new, target: "" }
+        cited_library_ids: []
+        candidate_ids_unverified: []
+        ---
+        # Discovery note — `eval-arch-noai`
+        ## Entitlement fit
+        The tenant has no AI Agent action.
+    baton:
+      entitlements: { records: true, apps: false, ai_agent_action: false, cases: false, change_control: true, tunnel: false }
+    checks:
+      - { path: verdict, in: [done, needs_human] }
+      - { path: payload.mode.value, not_in: [mode-3-agent] }
+      - { path: payload.contract.ai_agents, max_items: 0 }
+
+  - id: architect-contract-is-reviewable
+    suite: capability
+    kind: model_graded
+    held_out: true
+    tests: "A G2 reviewer can hold the build to the contract."
+    story_key: eval-arch-ip
+    fixtures:
+      storyline/work/eval-arch-ip/intake.md: { copy_from: storyline/examples/example-enrich-ip/intake.md, replace: { "example-enrich-ip": "eval-arch-ip" } }
+      storyline/work/eval-arch-ip/discovery.md: { copy_from: storyline/examples/example-enrich-ip/discovery.md, replace: { "example-enrich-ip": "eval-arch-ip" } }
+    rubric: >-
+      Pass only if all hold: every acceptance criterion's `then` is observable in a run's events, logs or result
+      fields; at least one criterion is a should-not (a guard refuses or invalid input goes to error); why_not_lower
+      has one specific sentence per lower rung; out_of_scope names at least one tempting extension; credentials,
+      Resources and hosts are names or <placeholders>, never values or a tenant hostname; every HTTP Request in
+      actions_outline has a failure path; the cost estimate is 0 with basis "no AI Agent action" or comes from
+      ./scripts/storyline estimate.
+    reference_output: >-
+      The contract in storyline/examples/example-enrich-ip/design.md is a passing reference.
+    k: 3

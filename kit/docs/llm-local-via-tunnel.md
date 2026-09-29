@@ -43,7 +43,7 @@ Do **not** rely on `tool_choice` or `strict`: they are not portable, and Ollama 
    - The API key goes in a **credential**, never pasted. For Ollama any placeholder value works; whether a blank key, or a plain `http://` base URL, is accepted is VERIFY K23.
    - Select a custom CA if the server uses private TLS.
    - Give the provider the name you will type on the kickoff Page (`provider_name`).
-5. **Run the kit's probe.** On day 1, submit the kickoff Page with the matching `local_*` choice; section F runs a tool-less call and a one-tool call and reports a verdict. After a later fix, re-run section F as `stories/kit-factory/sections/F-llm-probe.md` describes, and read `kit_state.step_probe`.
+5. **Run the kit's probe.** On day 1, submit the kickoff Page with the matching `local_*` choice; section F runs a tool-less call and a one-tool call and reports a verdict. After a later fix, re-run section F as `stories/kit-launch/sections/F-llm-probe.md` describes, and read `kit_state.step_probe`.
 6. **Keep a foundation provider active beside it** (below), and pin every tool-using AI Agent action to it.
 
 ## Read the verdict
@@ -51,16 +51,16 @@ Do **not** rely on `tool_choice` or `strict`: they are not portable, and Ollama 
 | Verdict | Means | Do |
 |---|---|---|
 | `ok` and `credits_used == 0` | The local model answers and handles a streamed tool call | Proceed. The local model may serve the tool-less agents now; tool-using agents move only after their own eval set passes on it |
-| `tool_calls_unreliable` | The tool-less call passed; the tool call failed | Expected on small models. Keep tool-using agents on the foundation provider; the three runtime specialists are tool-less and may stay local. Acknowledge it in the day-1 milestone |
+| `tool_calls_unreliable` | The tool-less call passed; the tool call failed | Expected on small models. Keep tool-using agents on the foundation provider; the three runtime crew are tool-less and may stay local. Acknowledge it in the day-1 milestone |
 | `failed` | The tool-less call failed | Check, in order: the Tunnel is up and accessible by all teams (K36); the base URL and "Use full API endpoint URL"; the key credential (K23); streaming support; the provider's name matches the Page |
 | `ok` but `credits_used > 0` | The action ran on a Tines-provided model | The local provider is not the default for the ops team: check the provider's team scoping and the tenant defaults |
 
-The probe checks the tenant's **defaults** (fast for the tool-less call, smart for the tool call), because a per-action model cannot be chosen per run (VERIFY K26). A model pinned on an action later is exercised by that story's own eval cases, run with `./scripts/sdlc eval-run` against the dev copy.
+The probe checks the tenant's **defaults** (fast for the tool-less call, smart for the tool call), because a per-action model cannot be chosen per run (VERIFY K26). A model pinned on an action later is exercised by that story's own eval cases, run with `./scripts/storyline eval-run` against the dev copy.
 
 ## Cost
 
 - **Zero Tines AI credits.** Custom models use no run-time credits.
-- **Not covered by Tines' credit alerts.** The kit's own bounds still apply: the `sdlc_limits` daily caps and kill switch, a token alert per AI Agent action (whether those act on custom providers is VERIFY K25), and a budget line per action in `policies/cost-ceilings.yml`.
+- **Not covered by Tines' credit alerts.** The kit's own bounds still apply: the `storyline_limits` daily caps and kill switch, a token alert per AI Agent action (whether those act on custom providers is VERIFY K25), and a budget line per action in `policies/cost-ceilings.yml`.
 - **The real cost is the host**: the GPU or CPU, the power, and the operations.
 - `GET /api/v1/ai_usage` still reports tokens; what `billed_cost` shows for a local provider is VERIFY K25.
 
@@ -76,7 +76,7 @@ Tines' own guidance for Workbench for Storyboard on self-hosted tenants strongly
 
 ## Where a local model fits by design
 
-- **First candidates:** the kit's runtime specialists (`planner`, `brief_writer`, `retro_writer`) and the ops sweep's `critic`. All four are **tool-less**. The three kit agents carry a skill, which counts as an agentic capability, so their model is pinned on the action whichever provider serves it.
+- **First candidates:** the kit's runtime crew (`planner`, `brief_writer`, `retro_writer`) and the ops sweep's `critic`. All four are **tool-less**. The three kit agents carry a skill, which counts as an agentic capability, so their model is pinned on the action whichever provider serves it.
 - **Only after their own eval set passes on the local model:** tool-using agents — the ops `triage`, any Mode 3 story.
 - **Never by default:** Workbench for Storyboard, which is a smart-model, tool-heavy job.
 
@@ -84,7 +84,7 @@ Tines' own guidance for Workbench for Storyboard on self-hosted tenants strongly
 
 1. **Keep one foundation provider active** beside the local one, and pin tool-using actions to it with per-action model selection.
 2. **A twin for each local-model action.** When a local-model action fails its schema Trigger or times out, route the event to a twin AI Agent action pinned to the fallback model, with the same instructions and output schema. If the twin fails too, the event goes to a person (`needs_human`).
-3. **If the Tunnel is down,** the action errors and the scaffold's router pages ops; set `sdlc_limits.enabled` to false to stop the runtime specialists until it is back.
+3. **If the Tunnel is down,** the action errors and the scaffold's router pages ops; set `storyline_limits.enabled` to false to stop the runtime crew until it is back.
 4. **Community Edition** has no Tunnel, so there is no private local path at all.
 
 ## Verify in your tenant before relying on it

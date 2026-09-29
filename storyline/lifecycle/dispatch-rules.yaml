@@ -1,0 +1,182 @@
+# storyline/lifecycle/dispatch-rules.yaml — which crew member(s) run for a story's (phase, status), and when.
+#
+# Spec: REPO-DESIGN.md §6.1 (the excerpt there, completed for every phase and status) and P18 (scale the number
+# of agents to the task). Phase, status and gate names come from storyline/lifecycle/state-machine.yaml, never from here.
+#
+# Who reads it: `./scripts/storyline next <slug>` (step 4 of REPO-DESIGN.md §6.1). Code chooses what runs; the model
+# then carries it out. The showrunner never skips or reorders a rule.
+#
+# Evaluation
+#   - `rules` are evaluated in FILE ORDER after the evidence is reconciled (§6.1 step 2) and after an open gate has
+#     already stopped the run (step 3). The FIRST rule whose phase, status and `when` all match is the answer.
+#   - phase / status: a name, a list of names, or "*" (any).
+#   - when: an expression over the names in `conditions` (below). Grammar, and nothing more:
+#         expr  := term { ("and" | "or") term }        (and binds tighter than or; no parentheses)
+#         term  := [ "not" ] atom
+#         atom  := NAME | NAME "non-empty" | "exists(" PATH ")"
+#     PATH is relative to storyline/work/<slug>/. NAME may be dotted (retro.curated reads retro.md's front matter).
+#   - A matching rule returns exactly one of:
+#         agents: [...]  (+ parallel, handoff, script)  → spawn these crew; `agents: []` means no crew member
+#                                                        (the note says who acts instead)
+#         gate: <G>      → print {gate, decided_by, instrument, evidence_paths} from state-machine.yaml gate_info; stop
+#         advance: true  → evidence for a transition is present: the human runs ./scripts/storyline advance <slug> (ask)
+#         script: "..."  (alone) → a deterministic step the human runs (ask); no model
+#         wait: true     → nothing to run; the note says what is awaited
+#         stop: true     → nothing ever runs (terminal), or no rule matched (the last rule: report drift)
+#   - An agent name ending in "?" is conditional: it is included only when `conditional.<name>` holds.
+#   - `handoff` names the template in .claude/skills/storyline/references/handoff-prompts.md; when a rule omits it, the
+#     agent's entry in `handoffs` applies.
+#   - `parallel: true` is the only way two crew run at once, and only read-only crew are ever listed
+#     together (the showrunner never spawns two write-scoped crew at once, §5.3.0).
+#   - Output of `next`: {phase, status, attempt, next: {agents[], parallel, handoff_ids[], inputs[]}, reason}, or with
+#     --print-prompt the rendered prompts for Cursor. `inputs` are the entries under `inputs.<agent>` below.
+
+version: 1
+
+handoffs:   # agent → handoff template id (one template per crew member; the builder's is named for what it builds from)
+  story-scout: story-scout
+  story-architect: story-architect
+  eval-author: eval-author
+  tines-builder: build-from-contract
+  tines-reviewer: tines-reviewer
+  security-reviewer: security-reviewer
+  story-qa: story-qa
+  eval-curator: eval-curator
+  skill-curator: skill-curator
+
+rules:
+  # ── any phase ──────────────────────────────────────────────────────────────────────────────────────────────
+  - { phase: [rejected, retired], status: "*",   stop: true,  note: "terminal; nothing runs" }
+  - { phase: parked,   status: "*",               gate: GB,    note: "parked; a human unparks (gate GB, decision unpark)" }
+  - { phase: "*",      status: blocked,           gate: GX,    note: "escalated; the owner decides resume | park | reject" }
+
+  # ── 00 intake ──────────────────────────────────────────────────────────────────────────────────────────────
+  - { phase: intake,   status: awaiting_gate,     gate: G0 }
+  - { phase: intake,   status: active,  when: "intake_complete",                 advance: true, note: "intake.md is complete: ./scripts/storyline advance opens G0 (intake → awaiting_gate)" }
+  - { phase: intake,   status: active,  when: "runtime_specialists_enabled",     agents: [], note: "brief_writer runs in Tines; wait for the tracker PR" }
+  - { phase: intake,   status: active,  when: "not runtime_specialists_enabled", agents: [], note: "the person fills storyline/work/<slug>/intake.md (created by ./scripts/storyline intake or start from templates/intake-brief.md) in their own editor — the model's Write and Edit are denied there; run next again when it is complete" }
+
+  # ── 01 discover ────────────────────────────────────────────────────────────────────────────────────────────
+  - { phase: discover, status: active,  when: "discovery_complete",              advance: true, note: "discover → design (check discovery_complete)" }
+  - { phase: discover, status: active,                                           agents: [story-scout] }
+
+  # ── 02 design (branch design/<slug>) ───────────────────────────────────────────────────────────────────────
+  - { phase: design,   status: active,  when: "not exists(design.md)",           agents: [story-architect] }
+  - { phase: design,   status: active,  when: "exists(design.md) and not exists(evals/cases.yaml)", agents: [eval-author] }
+  - { phase: design,   status: active,  when: "all_design_artifacts",            gate: G1,    note: "run ./scripts/storyline ready; on exit 0, ./scripts/storyline advance writes phase: build on the branch and the design PR opens (G2)" }
+  - { phase: design,   status: active,                                           wait: true,  note: "a design artifact is missing that no crew member writes: see all_design_artifacts" }
+
+  # ── 03 build (branch story/<slug>/<short>) ─────────────────────────────────────────────────────────────────
+  - { phase: build,    status: active,  when: "design_pr_open",                  gate: G2,    note: "the design PR has not merged; /mcp stays closed (phase-gate.sh reads origin/main)" }
+  - { phase: build,    status: [active, rework], when: "build_evidence",         advance: true, note: "build → verify (check build_evidence)" }
+  - { phase: build,    status: [active, rework],                                 agents: [tines-builder], handoff: build-from-contract }
+
+  # ── 04 verify (same branch as build) ───────────────────────────────────────────────────────────────────────
+  - { phase: verify,   status: active,  when: "not reviews_applied",             parallel: true, agents: [tines-reviewer, "security-reviewer?"], script: "storyline estimate --check" }
+  - { phase: verify,   status: active,  when: "reviews_applied and not qa_applied", agents: [story-qa] }
+  - { phase: verify,   status: active,  when: "qa_applied and not verify_merged", script: "storyline apply <slug> verify-merge", note: "the deterministic merge; any blocker or major → changes_requested and a rework package" }
+  - { phase: verify,   status: active,  when: "verify_merged and verify_passed", advance: true, note: "verify → ship is written on the branch; open the build PR with the Lifecycle section (G4)" }
+  - { phase: verify,   status: active,                                           wait: true,  note: "verify-report.json is not a pass for this attempt; apply sets rework — re-run next" }
+
+  # ── 05 ship ────────────────────────────────────────────────────────────────────────────────────────────────
+  - { phase: ship,     status: [active, awaiting_gate], when: "build_pr_open",   gate: G4,    note: "the build PR (which carries ship / awaiting_gate) has not merged" }
+  - { phase: ship,     status: [active, awaiting_gate], when: "ship_evidence_on_main", advance: true, note: "ship.md is on main: ship → operate, or → build with a revert PR on rejection" }
+  - { phase: ship,     status: [active, awaiting_gate], when: "manifest_new",    gate: G5a,   note: "ship.yml's mode: new import waits for the production environment's required reviewer" }
+  - { phase: ship,     status: [active, awaiting_gate],                          gate: G5b,   note: "a named approver approves and pushes the change request in Tines" }
+
+  # ── 06 operate ─────────────────────────────────────────────────────────────────────────────────────────────
+  - { phase: operate,  status: shadow,  when: "shadow_window_elapsed",           gate: G6 }
+  - { phase: operate,  status: [shadow, live], when: "improve_trigger_repo_side", advance: true, note: "operate → improve (an eval regression or an owner request, recorded repo-side)" }
+  - { phase: operate,  status: [shadow, live],                                   wait: true,  note: "the ops trio runs; [KIT] 00 section D (D9) evaluates the Tines-side improve triggers; G7 is quarterly" }
+
+  # ── 07 improve (branch improve/<slug>) ─────────────────────────────────────────────────────────────────────
+  - { phase: improve,  status: active,  when: "not exists(retro.md) and runtime_specialists_enabled", wait: true, note: "retro_writer runs in Tines; wait for the tracker PR" }
+  - { phase: improve,  status: active,  when: "not exists(retro.md)",            agents: [], note: "the person copies templates/retro.md to storyline/work/<slug>/retro.md and fills it in their own editor — the model's Write and Edit are denied there" }
+  - { phase: improve,  status: active,  when: "exists(retro.md) and not retro.curated", agents: [eval-curator] }
+  - { phase: improve,  status: active,  when: "retro.skill_suggestions non-empty and not skills_proposed", agents: [skill-curator] }
+  - { phase: improve,  status: active,  when: "change_needed or retire_candidate or retro_closed", advance: true }
+  - { phase: improve,  status: active,                                           wait: true,  note: "the human completes retro.md and sets closed: true" }
+
+  # ── nothing matched ────────────────────────────────────────────────────────────────────────────────────────
+  - { phase: "*",      status: "*",                               stop: true,  note: "no rule matched this (phase, status): print drift and propose a correction; never fix it silently" }
+
+conditional:   # scale agents to the story (P18); the cost checks are a script and always run
+  security-reviewer?: "contract.egress_hosts or contract.credentials or contract.ai_agents or contract.mode.value == 'mode-4-server' or contract.access has a level wider than team"
+  # "wider than team" — page: anything but team_members or none · webhook: public · mcp_server: anything but team or none
+
+conditions:   # every name a `when` may use, and the evidence it reads (git wins over the tracker, §6.1 step 2)
+  runtime_specialists_enabled: "kit/tenant/config.yaml says Records and the AI Agent action are entitled (key names as in kit/tenant/config.example.yaml); false on the Community path"
+  intake_complete:             "the check of that name in state-machine.yaml: storyline/work/<slug>/intake.md has every front-matter field set and no bare [TBD] or template placeholder"
+  discovery_complete:          "the check of that name in state-machine.yaml"
+  build_evidence:              "the check of that name in state-machine.yaml"
+  change_needed:               "the check of that name in state-machine.yaml"
+  retire_candidate:            "the check of that name in state-machine.yaml"
+  retro_closed:                "the check of that name in state-machine.yaml"
+  all_design_artifacts:        "storyline/work/<slug>/design.md holds exactly one contract block that validates against storyline/templates/story-contract.schema.json, and storyline/work/<slug>/evals/cases.yaml, stories/<slug>/README.md, stories/<slug>/story.meta.yaml, stories/<slug>/tests/sample-event.json and stories/<slug>/tests/expectations.yaml all exist"
+  design_pr_open:              "an open PR from design/<slug> (gh pr list --head design/<slug> --state open; read-only)"
+  build_pr_open:               "an open PR from a story/<slug>/* branch"
+  reviews_applied:             "for the current attempt, .storyline/out/<slug>/tines-reviewer-<attempt>.json exists, and .storyline/out/<slug>/security-reviewer-<attempt>.json exists whenever security-reviewer? holds"
+  qa_applied:                  ".storyline/out/<slug>/story-qa-<attempt>.json exists for the current attempt"
+  verify_merged:               "storyline/work/<slug>/verify-report.json exists and its attempt equals the tracker row's attempt"
+  verify_passed:               "storyline/work/<slug>/verify-report.json verdict == pass"
+  manifest_new:                "stories/_manifest.yaml .stories.<slug>.new == true"
+  ship_evidence_on_main:       "git show origin/main:storyline/work/<slug>/ship.md succeeds and its front matter `sha` is the merge commit of the story's latest build PR"
+  shadow_window_elapsed:       "now (UTC) ≥ the row's live_since + timers.shadow_days (state-machine.yaml)"
+  improve_trigger_repo_side:   "a suite: regression case failed in the latest eval-run result for this story, or the owner asked for an improve iteration; the Tines-side triggers (findings, credits, retro due) arrive by tracker PR instead"
+  retro.curated:               "retro.md front matter curated: true (set by ./scripts/storyline apply after eval-curator)"
+  retro.skill_suggestions:     "retro.md front matter skill_suggestions (a list)"
+  skills_proposed:             ".storyline/out/<slug>/skill-curator-<attempt>.json exists"
+  exists(PATH):                "the file exists under storyline/work/<slug>/ in the working tree"
+
+inputs:   # what each crew member's input baton lists (kind + path); the handoff passes paths, never pasted content (P6)
+  story-scout:
+    - { kind: intake_brief,     path: "storyline/work/<slug>/intake.md" }
+    - { kind: library_catalog,  path: "kit/catalog/library-seeds.yaml" }
+    - { kind: tenant_config,    path: "kit/tenant/config.yaml" }
+    - { kind: manifest,         path: "stories/_manifest.yaml" }
+  story-architect:
+    - { kind: intake_brief,     path: "storyline/work/<slug>/intake.md" }
+    - { kind: discovery_note,   path: "storyline/work/<slug>/discovery.md" }
+    - { kind: decision_rules,   path: "docs/01-decision-rules.md" }
+    - { kind: conventions,      path: "AGENTS.md" }
+    - { kind: story_conventions, path: ".claude/skills/tines-build-story/references/story-conventions.md" }
+    - { kind: tenant_config,    path: "kit/tenant/config.yaml" }
+    - { kind: cost_ceilings,    path: "policies/cost-ceilings.yml" }
+    - { kind: story_template,   path: "stories/_template/" }
+    - { kind: contract_schema,  path: "storyline/templates/story-contract.schema.json" }
+    - { kind: design_template,  path: "storyline/templates/design-brief.md" }
+    - { kind: retro,            path: "storyline/work/<slug>/retro.md",   when: "iteration > 1" }
+    - { kind: export,           path: "stories/<slug>/story.json",   when: "iteration > 1" }
+  eval-author:
+    - { kind: design,           path: "storyline/work/<slug>/design.md" }
+    - { kind: eval_template,    path: "storyline/templates/eval-cases.yaml" }
+    - { kind: story_conventions, path: ".claude/skills/tines-build-story/references/story-conventions.md" }
+  tines-builder:
+    - { kind: design,           path: "storyline/work/<slug>/design.md" }
+    - { kind: expectations,     path: "stories/<slug>/tests/expectations.yaml" }
+    - { kind: eval_cases,       path: "storyline/work/<slug>/evals/cases.yaml" }
+    - { kind: rework_package,   path: ".storyline/out/<slug>/rework-<attempt>.json", when: "status == rework" }
+  tines-reviewer:
+    - { kind: diff_range,       path: "origin/main...HEAD" }
+  security-reviewer:
+    - { kind: diff_range,       path: "origin/main...HEAD" }
+    - { kind: export,           path: "stories/<slug>/story.json" }
+    - { kind: story_meta,       path: "stories/<slug>/story.meta.yaml" }
+    - { kind: design,           path: "storyline/work/<slug>/design.md" }
+    - { kind: policy,           path: "policies/POLICY.md" }
+    - { kind: never_touch,      path: "policies/never-touch.yml" }
+  story-qa:
+    - { kind: eval_cases,       path: "storyline/work/<slug>/evals/cases.yaml" }
+    - { kind: tests,            path: "stories/<slug>/tests/" }
+    - { kind: export,           path: "stories/<slug>/story.json" }
+  eval-curator:
+    - { kind: retro,            path: "storyline/work/<slug>/retro.md" }
+    - { kind: eval_cases,       path: "storyline/work/<slug>/evals/cases.yaml" }
+    - { kind: tests,            path: "stories/<slug>/tests/" }
+    - { kind: regression_rules, path: "storyline/evals/regression/README.md" }
+  skill-curator:
+    - { kind: retro,            path: "storyline/work/<slug>/retro.md" }
+    - { kind: logbook,      path: "storyline/logbook.md" }
+    - { kind: tines_skills,     path: "tines-skills/" }
+    - { kind: prompt_pack,      path: ".claude/skills/tines-build-story/references/prompt-pack.md" }
+    - { kind: agent_evals,      path: "storyline/evals/agents/" }

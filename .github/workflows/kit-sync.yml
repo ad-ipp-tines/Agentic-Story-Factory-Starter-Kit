@@ -3,17 +3,17 @@
 #
 # After day 1 the repository's lifecycle, catalog, config (entitlements) and ceilings keep changing; the Resources that
 # [KIT] 00 sections B, C and D read must follow. On a merge to main that changes one of their sources (the `paths`
-# below: exactly what kit_bundle.py builds sdlc_state_machine, kit_catalog, kit_config and sdlc_limits from), and on
+# below: exactly what kit_bundle.py builds storyline_state_machine, kit_catalog, kit_config and storyline_limits from), and on
 # dispatch:
 #   ./scripts/kit sync-resources --env prod
-#     under the sdlc_sync_lock compare-and-swap (POST /api/v1/global_resources/{id}/replace, if_value: free; a 422 means
+#     under the storyline_sync_lock compare-and-swap (POST /api/v1/global_resources/{id}/replace, if_value: free; a 422 means
 #     a tracker sync holds it — retried, then the run stops without writing):
-#       PUT /api/v1/global_resources/{id}                 sdlc_state_machine, kit_catalog, kit_config — whole value;
+#       PUT /api/v1/global_resources/{id}                 storyline_state_machine, kit_catalog, kit_config — whole value;
 #                                                         kit_config keeps tenant_host (= $TINES_TENANT.tines.com) and
 #                                                         environment: prod, which never come from git
-#       POST …/{sdlc_limits}/replace                      every key it owns — never `enabled` or `guards_confirmed`,
+#       POST …/{storyline_limits}/replace                      every key it owns — never `enabled` or `guards_confirmed`,
 #                                                         which only people set
-#       POST …/{kit_state}/replace                        hash_<name> for each Resource = sdlc_common.resource_hash of its
+#       POST …/{kit_state}/replace                        hash_<name> for each Resource = storyline_common.resource_hash of its
 #                                                         bundle-form value (kit/bundle/kit-bundle.json resources[].value);
 #                                                         resources_in_sync compares them nightly (tracker-pull.yml)
 #     then releases the lock (also on failure). Resource ids come from the committed kit/tenant/setup-report.json.
@@ -35,10 +35,10 @@ on:
   push:
     branches: [main]
     paths: # the sources of the four synced Resources (scripts/kit_bundle.py bundle_resource_values)
-      - "sdlc/lifecycle/**"
+      - "storyline/lifecycle/**"
       - "kit/catalog/**"
       - "kit/tracker/milestones.yaml" # kit_catalog.milestones
-      - "kit/records/*.record-type.json" # the enums in sdlc_state_machine
+      - "kit/records/*.record-type.json" # the enums in storyline_state_machine
       - "kit/tenant/config.yaml"
       - "policies/cost-ceilings.yml"
   workflow_dispatch:
@@ -88,7 +88,7 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Push the generated Resources (under sdlc_sync_lock)
+      - name: Push the generated Resources (under storyline_sync_lock)
         if: steps.gate.outputs.skip != 'true'
         env:
           TINES_API_KEY: ${{ secrets.TINES_API_KEY_KIT_SYNC }}

@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tines-storyworks/storyline/crew/contracts/security-reviewer.schema.json",
+  "title": "security-reviewer — input requirements and output payload",
+  "description": "Spec: REPO-DESIGN.md §5.3.6. Conditional (storyline/lifecycle/dispatch-rules.yaml `conditional`). No tenant access, no files, no patches. The findings (rule ids sec.1, sec.2, sec.3, sec.4, sec.5, sec.7, sec.9, sec.10) travel in the output baton's `findings` array, which verify-merge reads; they are not repeated here. What the scaffold already gates is cited by its existing rule id (tools_are_requests, mode4_read_only_hints, never_touch_targets), never re-checked. `verdict` must be changes_requested exactly when a blocker or major finding exists, and the baton verdict must then be changes_requested too.",
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "phase",
+        "inputs"
+      ],
+      "properties": {
+        "phase": {
+          "const": "verify"
+        },
+        "inputs": {
+          "type": "array",
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "diff_range"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "export"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "story_meta"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "design"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "policy"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "never_touch"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "checks",
+        "threat_model"
+      ],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "changes_requested"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "description": "One line per threat-model check, in order; not_applicable needs a reason",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "result",
+              "detail"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "enum": [
+                  "sec.1",
+                  "sec.2",
+                  "sec.3",
+                  "sec.4",
+                  "sec.5",
+                  "sec.7",
+                  "sec.9",
+                  "sec.10"
+                ]
+              },
+              "result": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "not_applicable"
+                ]
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 300
+              }
+            }
+          }
+        },
+        "threat_model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entry_points",
+            "untrusted_inputs_to_ai",
+            "egress_hosts",
+            "side_effects",
+            "data_classes"
+          ],
+          "properties": {
+            "entry_points": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "access"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                  },
+                  "access": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "As the export shows it (Webhook: secret | team | tenant | public; Page: team members | via SSO | anyone with the link; MCP server: its access setting; send_to_story; schedule)"
+                  }
+                }
+              }
+            },
+            "untrusted_inputs_to_ai": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "description": "Fields that reach an AI Agent action's prompt from outside (payload fields, Page answers, log text, fetched pages)"
+            },
+            "egress_hosts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "host",
+                  "credential",
+                  "in_contract"
+                ],
+                "properties": {
+                  "host": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "A hostname or a <placeholder>; never a tenant hostname (<your-tenant>)"
+                  },
+                  "credential": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 64,
+                    "description": "The credential NAME used for that host, or null"
+                  },
+                  "in_contract": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "side_effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "approval_path"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                  },
+                  "approval_path": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The Trigger, request_ tool, approval Page or shadow Resource that gates it, or \"none\""
+                  }
+                }
+              }
+            },
+            "data_classes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "internal",
+                  "confidential",
+                  "regulated",
+                  "personal_data",
+                  "credentials_by_name",
+                  "other"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "description": "What ./scripts/storyline apply validates the baton's `payload` against: the full payload ($defs.payload) when the baton verdict is done or changes_requested, or an empty object when it is needs_human or blocked (baton.schema.json enforces which verdict allows which).",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 0
+        },
+        {
+          "$ref": "#/$defs/payload"
+        }
+      ]
+    }
+  }
+}

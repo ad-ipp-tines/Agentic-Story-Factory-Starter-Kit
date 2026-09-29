@@ -8,10 +8,10 @@
 
 ## Lifecycle
 
-<!-- sdlc/README.md. A design PR (branch design/<slug>) asks for G2: its merge is the design approval. A build PR
-     (branch story/<slug>/<short>) asks for G4: its merge is the verify-and-merge gate, and sdlc.yml refuses it
+<!-- storyline/README.md. A design PR (branch design/<slug>) asks for G2: its merge is the design approval. A build PR
+     (branch story/<slug>/<short>) asks for G4: its merge is the verify-and-merge gate, and storyline.yml refuses it
      until the QA line below says pass and names a role (never a person or an email). The QA line is the human's
-     verdict on the human_verification_prompt story-qa wrote; after editing it, re-run the failed sdlc job.
+     verdict on the human_verification_prompt story-qa wrote; after editing it, re-run the failed storyline job.
      Tracker, kit and rollback PRs: write n/a on each line. -->
 
 - Story key: `<slug>` · tracker row `rev` in this PR: `<main's rev + 1>`
@@ -19,7 +19,7 @@
 - Gate it asks for: `G2 design approval | G4 verify and merge | n/a`
 - Rework attempt: `<n>/3`
 - QA verification: pass/fail · by <role>
-- Lifecycle artifacts: `sdlc/work/<slug>/`
+- Lifecycle artifacts: `storyline/work/<slug>/`
 
 ## What changed
 
@@ -70,4 +70,4 @@
 - [ ] Credentials and resources exist in the **prod team** under the same names
 - [ ] `/tines-review` run from a **fresh** session; findings addressed
 - [ ] No credential values, resource contents, tokens, hostnames, customer names or people anywhere in the diff
-- [ ] Ran `./scripts/kit bundle` and committed `kit/bundle/` and `kit/resources/*.example.json` if this PR changes a bundle source (`kit/bundle/README.md`) — or, in the template repository, **adds or removes any file** (the bundle's file manifest changes; `sdlc.yml`'s `bundle_fresh` fails otherwise)
+- [ ] Ran `./scripts/kit bundle` and committed `kit/bundle/` and `kit/resources/*.example.json` if this PR changes a bundle source (`kit/bundle/README.md`) — or, in the template repository, **adds or removes any file** (the bundle's file manifest changes; `storyline.yml`'s `bundle_fresh` fails otherwise)

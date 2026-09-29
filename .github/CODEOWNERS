@@ -36,19 +36,19 @@
 # Tenant-side Agent Skills change agent behaviour in production: security-platform owns them (builders: optional reviewers)
 /tines-skills/**                @<org>/security-platform
 
-# The story factory (REPO-DESIGN.md §3.3 row 7). The lifecycle rules (state machine, touch sets, dispatch), the
-# specialists' role cards and contracts, the gates and who may approve them change what every later gate enforces:
+# The Storyworks (REPO-DESIGN.md §3.3 row 7). The lifecycle rules (state machine, touch sets, dispatch), the
+# crew's role cards and contracts, the gates and who may approve them change what every later gate enforces:
 # security-platform alone. Per-story artifacts and the backlog are builders' work — except each story's event log and
-# ship record, which carry the gate decisions (G5–G7, GB) that sdlc/gates/approvers.yaml reserves for security-platform
-# and that sdlc.yml's pr_gate_approvers cannot tie to a team by itself. Later lines win.
-/sdlc/**                        @<org>/tines-builders @<org>/security-platform
-/sdlc/lifecycle/**              @<org>/security-platform
-/sdlc/agents/**                 @<org>/security-platform
-/sdlc/gates/**                  @<org>/security-platform
-/sdlc/work/**                   @<org>/tines-builders
-/sdlc/work/*/events.jsonl       @<org>/security-platform
-/sdlc/work/*/ship.md            @<org>/security-platform
+# ship record, which carry the gate decisions (G5–G7, GB) that storyline/gates/approvers.yaml reserves for security-platform
+# and that storyline.yml's pr_gate_approvers cannot tie to a team by itself. Later lines win.
+/storyline/**                        @<org>/tines-builders @<org>/security-platform
+/storyline/lifecycle/**              @<org>/security-platform
+/storyline/crew/**                 @<org>/security-platform
+/storyline/gates/**                  @<org>/security-platform
+/storyline/work/**                   @<org>/tines-builders
+/storyline/work/*/events.jsonl       @<org>/security-platform
+/storyline/work/*/ship.md            @<org>/security-platform
 /kit/**                         @<org>/security-platform
 /kit/tracker/**                 @<org>/tines-builders
 /stories/kit-*                  @<org>/security-platform
-/sdlc/gates/approvers.yaml      @<org>/security-platform
+/storyline/gates/approvers.yaml      @<org>/security-platform

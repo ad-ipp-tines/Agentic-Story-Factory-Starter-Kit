@@ -41,7 +41,7 @@ platform stops the story. Output: a JSON object on stdout (``breaches``,
 
 Known unknowns (VERIFY, docs/VERIFY.md E5)
 ------------------------------------------
-* The response envelope, the identity keys of each row (``story_id`` /
+* The response baton, the identity keys of each row (``story_id`` /
   ``story_name``, ``team_id`` / ``team_name``, ``action_name``), the token key
   names, and the date format of ``start_date`` / ``end_date`` (``YYYY-MM-DD`` is
   sent). A team is matched by ``team_id`` when its ceiling entry carries one,

@@ -1,0 +1,93 @@
+{
+  "company_name": "Example Company",
+  "tines_tenant_host": "<your-tenant>.tines.com",
+  "dev_team_name": "<dev team name>",
+  "prod_team_name": "<prod team name>",
+  "plan_tier": "business",
+  "licensed_teams": 2,
+  "self_hosted": false,
+  "ent_pages": true,
+  "ent_apps": false,
+  "ent_cases": false,
+  "ent_records": true,
+  "ent_ai_agent_action": true,
+  "ent_change_control": true,
+  "ent_tunnel": false,
+  "records_tier": "essentials",
+  "llm_choice": "tines_provided",
+  "provider_name": "",
+  "model_display_name": "",
+  "github_org": "<org>",
+  "repo_name": "tines-storyworks-test",
+  "template_repo": "<template-owner>/<template-repo>",
+  "use_cases": [
+    {
+      "pick": "example-enrich-ip",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": "security-automation"
+    },
+    {
+      "pick": "ops-error-router",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": "ops"
+    },
+    {
+      "pick": "custom",
+      "custom_title": "Triage suspicious login alerts",
+      "custom_description": "Today an analyst checks each suspicious-login alert by hand in two consoles, about 30 a day. Enrich the source IP (203.0.113.10 in the example alert), look up the account's recent logins, and propose close or escalate for a person to confirm.",
+      "owner_role": "security-automation"
+    },
+    {
+      "pick": "none",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": ""
+    },
+    {
+      "pick": "none",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": ""
+    },
+    {
+      "pick": "none",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": ""
+    },
+    {
+      "pick": "none",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": ""
+    },
+    {
+      "pick": "none",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": ""
+    },
+    {
+      "pick": "none",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": ""
+    },
+    {
+      "pick": "none",
+      "custom_title": "",
+      "custom_description": "",
+      "owner_role": ""
+    }
+  ],
+  "chat_surface": "email",
+  "slack_credential_name": "",
+  "approver_g0": "approver-g0@example.invalid",
+  "approver_g6": "approver-g6@example.invalid",
+  "approver_g7": "approver-g7@example.invalid",
+  "consent": true,
+  "button": "provision",
+  "submitter_email": "builder@example.invalid"
+}

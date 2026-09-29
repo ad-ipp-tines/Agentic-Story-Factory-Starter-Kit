@@ -153,7 +153,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --quiet -r scripts/requirements.txt
 
-      # REPO-DESIGN.md §3.3 row 21: after a G5a/G5b rejection, `./scripts/sdlc advance` prepares a revert on
+      # REPO-DESIGN.md §3.3 row 21: after a G5a/G5b rejection, `./scripts/storyline advance` prepares a revert on
       # rollback/<slug>/<sha7>; until that PR merges, main is ahead of production on purpose, and a nightly drift PR
       # would fight the rework branch. So a slug with an OPEN PR from any rollback/<slug>/* branch is skipped tonight.
       # Read-only: `gh pr list`. The filtered list becomes ENTRIES, which the compare step reads.

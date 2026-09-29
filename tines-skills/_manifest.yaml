@@ -93,21 +93,21 @@ skills:
     shared_block: true                                # lint.yml checksums the marked block against AGENTS.md
     referenced_by: [story-health-triage, alert-policy]  # the monitor measures against these rules; not attached to `triage` (../DESIGN.md §5.4 names two skills)
 
-  # The three runtime-specialist skills of [KIT] 00 · Run the story factory (../REPO-DESIGN.md §3.3 row 13, §5.3.11–§5.3.13).
+  # The three runtime-crew-member skills of [KIT] 00 · Launch Storyworks (../REPO-DESIGN.md §3.3 row 13, §5.3.11–§5.3.13).
   # Each is attached to exactly one tool-less AI Agent action in section D, [BY HAND] (no attach API). The prod team IS the
   # ops team (../REPO-DESIGN.md §7.1), so [dev, prod] already reaches the kit's agents through skills.yml; kit-sync.yml
   # re-pushes them to the ops team on merge. Because a skill counts as an agentic capability, each of these actions has the
-  # fast model PINNED (recorded in stories/kit-factory/story.meta.yaml). Held-out cases: ../sdlc/evals/skills/<name>.cases.yaml.
+  # fast model PINNED (recorded in stories/kit-launch/story.meta.yaml). Held-out cases: ../storyline/evals/skills/<name>.cases.yaml.
   backlog-planning:
     path: "tines-skills/backlog-planning/SKILL.md"
     owner: platform
     teams: [dev, prod]
     attach:
       - kind: ai_agent_action
-        story: kit-factory
+        story: kit-launch
         action: planner
-        recorded_in: "stories/kit-factory/story.meta.yaml -> ai.agents[name=planner].skills"
-    budget_ref: "kit-factory/planner"
+        recorded_in: "stories/kit-launch/story.meta.yaml -> ai.agents[name=planner].skills"
+    budget_ref: "kit-launch/planner"
     shared_block: false
 
   story-brief-writing:
@@ -116,10 +116,10 @@ skills:
     teams: [dev, prod]
     attach:
       - kind: ai_agent_action
-        story: kit-factory
+        story: kit-launch
         action: brief_writer
-        recorded_in: "stories/kit-factory/story.meta.yaml -> ai.agents[name=brief_writer].skills"
-    budget_ref: "kit-factory/brief_writer"
+        recorded_in: "stories/kit-launch/story.meta.yaml -> ai.agents[name=brief_writer].skills"
+    budget_ref: "kit-launch/brief_writer"
     shared_block: false
 
   story-retrospective:
@@ -128,10 +128,10 @@ skills:
     teams: [dev, prod]
     attach:
       - kind: ai_agent_action
-        story: kit-factory
+        story: kit-launch
         action: retro_writer
-        recorded_in: "stories/kit-factory/story.meta.yaml -> ai.agents[name=retro_writer].skills"
-    budget_ref: "kit-factory/retro_writer"
+        recorded_in: "stories/kit-launch/story.meta.yaml -> ai.agents[name=retro_writer].skills"
+    budget_ref: "kit-launch/retro_writer"
     shared_block: false
 
 # The `critic` agent of ops-story-health-monitor carries NO skills on purpose (tool-less, fast

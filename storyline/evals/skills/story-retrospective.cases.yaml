@@ -1,0 +1,132 @@
+# storyline/evals/skills/story-retrospective.cases.yaml — HELD-OUT cases for the Tines Agent Skill `story-retrospective`.
+#
+# Spec: REPO-DESIGN.md §15.2, P24. The skill is attached [BY HAND] to the `retro_writer` AI Agent action of
+# kit-launch, so its cases run through that action in the DEV copy of kit-launch, via the D10 `specialist_test`
+# Webhook:
+#
+#   ./scripts/storyline eval-run kit-launch --cases storyline/evals/skills/story-retrospective.cases.yaml --entry-action specialist_test
+#
+# These test the skill's METHOD (categories, counting, cost scaling, the keep/change/retire rubric); the guard rails
+# are in storyline/evals/agents/runtime-retro-writer.cases.yaml. Push a changed skill to dev first. FORMAT, the D10 body
+# and grading: the header of storyline/evals/agents/runtime-planner.cases.yaml. Record ids are placeholders.
+
+version: 1
+skill: story-retrospective
+runs_via:
+  story: kit-launch
+  action: retro_writer
+  entry_action: specialist_test
+  command: "./scripts/storyline eval-run kit-launch --cases storyline/evals/skills/story-retrospective.cases.yaml --entry-action specialist_test"
+defaults:
+  k: 3
+
+variants:
+  auth-owner-action:
+    event:
+      agent: retro_writer
+      context:
+        story_key: ip-info-tool
+        window_from: "2026-10-01T00:00:00Z"
+        window_to: "2026-10-31T00:00:00Z"
+        findings:
+          - { id: 701, severity: medium, category: auth, root_cause_hypothesis: "401 after the key for the IP information service expired; rotated the same day", proposed_change_kind: none, needs_human: false, created_at: "2026-10-14T09:00:00Z" }
+        alerts:
+          - { id: 702, kind: action_failed, action: lookup_ip_info, created_at: "2026-10-14T08:55:00Z" }
+        events: []
+        credit_estimate_monthly: 0
+        provider: none
+  design-gap:
+    event:
+      agent: retro_writer
+      context:
+        story_key: enrichment-api
+        window_from: "2026-10-01T00:00:00Z"
+        window_to: "2026-10-31T00:00:00Z"
+        findings:
+          - { id: 801, severity: medium, category: unknown, root_cause_hypothesis: "IPv6 callers get an error: the story validates IPv4 only, as designed, but a third of callers send IPv6", proposed_change_kind: story_config, needs_human: true, created_at: "2026-10-08T09:00:00Z" }
+          - { id: 802, severity: medium, category: unknown, root_cause_hypothesis: "same as 801: IPv6 input rejected by design", proposed_change_kind: story_config, needs_human: true, created_at: "2026-10-19T09:00:00Z" }
+        alerts: []
+        events: []
+        credit_estimate_monthly: 0
+        provider: none
+  short-window:
+    event:
+      agent: retro_writer
+      context:
+        story_key: research-agent
+        window_from: "2026-10-01T00:00:00Z"
+        window_to: "2026-10-11T00:00:00Z"
+        findings: []
+        alerts: []
+        events:
+          - { id: 901, event_type: specialist_run, agent: research, credits_used: 10, created_at: "2026-10-03T10:00:00Z" }
+          - { id: 902, event_type: specialist_run, agent: research, credits_used: 10, created_at: "2026-10-06T10:00:00Z" }
+          - { id: 903, event_type: specialist_run, agent: research, credits_used: 10, created_at: "2026-10-09T10:00:00Z" }
+        credit_estimate_monthly: 90
+        provider: tines_provided
+  superseded:
+    event:
+      agent: retro_writer
+      context:
+        story_key: long-job-status
+        window_from: "2026-10-01T00:00:00Z"
+        window_to: "2026-10-31T00:00:00Z"
+        findings: []
+        alerts: []
+        events:
+          - { id: 1001, event_type: gate_decision, gate: G2, decision: merged, summary: "enrichment-api now returns job status itself; long-job-status has no remaining callers", created_at: "2026-10-02T09:00:00Z" }
+        credit_estimate_monthly: 0
+        provider: none
+
+cases:
+  - id: retro-auth-is-an-owner-action
+    suite: capability
+    kind: model_graded
+    held_out: true
+    input_ref: "storyline/evals/skills/story-retrospective.cases.yaml#variants.auth-owner-action"
+    should_trigger: true
+    expect: { must_fire: [retro_writer, retro_ok] }
+    output_checks:
+      - { path: "failure_modes", any_match: { category: "^auth$", count: "^1$" } }
+      - { path: keep_or_change, equals: keep }
+      - { path: "skill_suggestions", max_items: 0 }
+    k: 3
+
+  - id: retro-design-gap-means-change
+    suite: capability
+    kind: model_graded
+    held_out: true
+    input_ref: "storyline/evals/skills/story-retrospective.cases.yaml#variants.design-gap"
+    should_trigger: true
+    expect: { must_fire: [retro_writer, retro_ok] }
+    output_checks:
+      - { path: "failure_modes", any_match: { category: "^design_gap$", count: "^2$" } }
+      - { path: keep_or_change, equals: change }
+      - { path: "eval_case_suggestions", min_items: 1 }
+    k: 3
+
+  - id: retro-scales-a-short-window-to-30-days
+    suite: capability
+    kind: model_graded
+    held_out: true
+    input_ref: "storyline/evals/skills/story-retrospective.cases.yaml#variants.short-window"
+    should_trigger: true
+    expect: { must_fire: [retro_writer, retro_ok] }
+    output_checks:
+      - { path: cost_variance.estimate, equals: 90 }
+      - { path: cost_variance.actual, gte: 85 }
+      - { path: cost_variance.actual, lte: 95 }
+    k: 3
+
+  - id: retro-superseded-story-is-a-retire-candidate
+    suite: capability
+    kind: model_graded
+    held_out: true
+    input_ref: "storyline/evals/skills/story-retrospective.cases.yaml#variants.superseded"
+    should_trigger: true
+    expect: { must_fire: [retro_writer, retro_ok] }
+    output_checks:
+      - { path: keep_or_change, equals: retire_candidate }
+      - { path: needs_human, equals: true }
+      - { path: "what_happened[*].evidence_refs[*]", subset_of: ["storyline_events:1001"] }
+    k: 3

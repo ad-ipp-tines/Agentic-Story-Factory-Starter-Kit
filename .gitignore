@@ -11,8 +11,8 @@ CLAUDE.local.md
 .tines/
 *.export.tmp.json
 
-# --- local lifecycle state: .sdlc/active and .sdlc/out/<slug>/ (REPO-DESIGN.md §2); never committed ---
-.sdlc/
+# --- local lifecycle state: .storyline/active and .storyline/out/<slug>/ (REPO-DESIGN.md §2); never committed ---
+.storyline/
 
 # --- subagent memory (tines-builder `memory: local`): derived from tenant data and logs, local and untrusted ---
 .claude/agent-memory*/

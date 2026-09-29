@@ -10,9 +10,9 @@
       "Bash(./scripts/promote_change_request.py *)", "Bash(python3 scripts/promote_change_request.py *)",
       "Bash(python scripts/promote_change_request.py *)", "Bash(BREAK_GLASS=1 *)",
       "Bash(*cr-promote*)", "Bash(*promote_change_request*)", "Bash(*BREAK_GLASS*)", "Bash(terraform *apply*)",
-      "Write(./.sdlc/**)", "Edit(./.sdlc/**)",
+      "Write(./.storyline/**)", "Edit(./.storyline/**)",
       "Write(./kit/tracker/**)", "Edit(./kit/tracker/**)",
-      "Write(./sdlc/work/**)", "Edit(./sdlc/work/**)",
+      "Write(./storyline/work/**)", "Edit(./storyline/work/**)",
       "Write(./.claude/**)", "Edit(./.claude/**)",
       "Write(./policies/**)", "Edit(./policies/**)"
     ],
@@ -27,8 +27,8 @@
       "Bash(./scripts/tines recipients-remove *)", "Bash(./scripts/tines story-update *)",
       "Bash(./scripts/tines action-update *)", "Bash(./scripts/tines story-disable *)",
       "Bash(./scripts/tines skills-push *)", "Bash(./scripts/tines resource-cas *)",
-      "Bash(./scripts/sdlc start *)", "Bash(./scripts/sdlc intake *)", "Bash(./scripts/sdlc apply *)",
-      "Bash(./scripts/sdlc advance *)", "Bash(./scripts/sdlc eval-run *)", "Bash(./scripts/sdlc gate *)",
+      "Bash(./scripts/storyline start *)", "Bash(./scripts/storyline intake *)", "Bash(./scripts/storyline apply *)",
+      "Bash(./scripts/storyline advance *)", "Bash(./scripts/storyline eval-run *)", "Bash(./scripts/storyline gate *)",
       "Bash(./scripts/kit bundle *)", "Bash(./scripts/kit apply-config *)", "Bash(./scripts/kit tracker-fold *)",
       "Bash(./scripts/kit tracker-json --push *)", "Bash(./scripts/kit tracker-json --out *)", "Bash(./scripts/kit tracker-json --full *)"
     ],
@@ -42,8 +42,8 @@
       "Bash(git status *)", "Bash(git log *)", "Bash(git show *)",
       "Bash(git checkout -b *)",
       "mcp__tines__*",
-      "Bash(./scripts/sdlc status *)", "Bash(./scripts/sdlc next *)", "Bash(./scripts/sdlc ready *)",
-      "Bash(./scripts/sdlc check *)", "Bash(./scripts/sdlc estimate *)",
+      "Bash(./scripts/storyline status *)", "Bash(./scripts/storyline next *)", "Bash(./scripts/storyline ready *)",
+      "Bash(./scripts/storyline check *)", "Bash(./scripts/storyline estimate *)",
       "Bash(./scripts/kit tracker-json --check)",
       "Bash(gh pr list *)", "Bash(gh pr view *)",
       "WebFetch(domain:www.tines.com)"

@@ -1,0 +1,78 @@
+# storyline/examples/example-enrich-ip/evals/cases.yaml — WORKED EXAMPLE (illustrative; placeholders only).
+# In a customer repository this file is storyline/work/example-enrich-ip/evals/cases.yaml, written by eval-author in
+# 02 design and extended by eval-curator in 07 improve. Template: storyline/templates/eval-cases.yaml.
+#
+# State shown: the end of the first improve phase. Three cases have graduated to regression (they passed in the
+# verify runs of attempt 0 and attempt 1); cached-second-run stays capability until eval-run can reset the dev cache
+# between runs; eval-curator added out-of-range-octet-is-validation-error from the retro, and it FAILS on the live
+# design — which is why the retro concluded `change` and iteration 2 opened.
+#
+# Most inputs reuse the variants already in stories/example-enrich-ip/tests/expectations.yaml. The last case's payload
+# file is created by eval-curator in a customer repository; the template does not ship it.
+
+version: 1
+story_key: example-enrich-ip
+defaults:
+  k: 3
+
+cases:
+  - id: happy-path
+    covers: [AC-1, AC-5]
+    suite: regression
+    kind: deterministic
+    input_ref: stories/example-enrich-ip/tests/sample-event.json
+    should_trigger: true
+    expect:
+      actions_fired_min: 10
+      must_fire: [normalize, is_valid_input, is_not_protected, check_cache, cache_miss, lookup_virustotal, lookup_abuseipdb, verdict, write_cache, result]
+      must_not_fire: [error, refused, cache_hit]
+      result_fields: [verdict, score, sources, summary]
+      no_error_on: [receive_ip, normalize, check_cache, lookup_virustotal, lookup_abuseipdb, verdict, write_cache, result]
+    notes: "Run on a cold cache: the first eval-run of the day, or after the dev ioc_cache row for 203.0.113.10 expires."
+
+  - id: cached-second-run
+    covers: [AC-2]
+    suite: capability
+    kind: deterministic
+    input_ref: stories/example-enrich-ip/tests/expectations.yaml#variants.cached_second_run
+    should_trigger: true
+    expect:
+      must_fire: [check_cache, cache_hit, result]
+      must_not_fire: [lookup_virustotal, lookup_abuseipdb, write_cache, error]
+      result_field_values: { sources: ["cache"] }
+    notes: "Depends on happy-path having run within 24 hours; stays capability until eval-run can reset the dev cache between runs."
+
+  - id: refused-private-range
+    covers: [AC-3]
+    suite: regression
+    kind: deterministic
+    input_ref: stories/example-enrich-ip/tests/expectations.yaml#variants.refused_private_range
+    should_trigger: false
+    expect:
+      must_fire: [normalize, is_valid_input, is_protected, refused]
+      must_not_fire: [check_cache, lookup_virustotal, lookup_abuseipdb, result, error]
+      result_field_values: { status: refused, reason: protected range }
+
+  - id: invalid-input
+    covers: [AC-4]
+    suite: regression
+    kind: deterministic
+    input_ref: stories/example-enrich-ip/tests/expectations.yaml#variants.invalid_input
+    should_trigger: false
+    expect:
+      must_fire: [normalize, is_invalid_input, error]
+      must_not_fire: [is_protected, check_cache, lookup_virustotal, lookup_abuseipdb, result]
+      result_field_values: { status: error, error_category: validation, retryable: false }
+
+  - id: out-of-range-octet-is-validation-error
+    covers: []
+    suite: capability
+    kind: deterministic
+    input_ref: stories/example-enrich-ip/tests/cases/out-of-range-octet-is-validation-error.json   # { "ip": "999.0.0.1", "requester": "builder@example.invalid", "source": "test" }
+    should_trigger: false
+    expect:
+      must_fire: [normalize, is_invalid_input, error]
+      must_not_fire: [is_protected, check_cache, lookup_virustotal, lookup_abuseipdb, result]
+      result_field_values: { status: error, error_category: validation, retryable: false }
+    from_evidence_ref: "ops_findings:0 (retro 2026-10-13, failure mode: validation gap)"
+    notes: "Fails on iteration 1: the IPv4 pattern accepts octets above 255, so the vendors reject the address and the run ends in error with error_category unknown. Iteration 2's design replaces the pattern check with a range check."

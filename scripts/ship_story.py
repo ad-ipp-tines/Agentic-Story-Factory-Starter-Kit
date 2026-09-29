@@ -118,7 +118,7 @@ def run_script(script: str, args: list[str]) -> tuple[str, Optional[dict[str, An
     """Run a sibling script; forward its stderr; return ``(stdout, last JSON line or None)``.
 
     Each child keeps its own guards (``guard_prod``, never-touch, name checks),
-    so this orchestrator adds no privilege of its own.
+    so this script adds no privilege of its own.
     """
     cmd = [sys.executable, str(HERE / script), *args]
     proc = subprocess.run(cmd, capture_output=True, text=True)

@@ -5,9 +5,9 @@
 # Readers
 #   scripts/kit_tracker.py   tracker-json (YAML → Record-field JSON for section B), tracker-fold (outbox → YAML),
 #                            the snapshot comparison; it refuses to run when this file and the schemas disagree
-#   ./scripts/sdlc check     field_map_complete: every property of kit/tracker/backlog.schema.json and
+#   ./scripts/storyline check     field_map_complete: every property of kit/tracker/backlog.schema.json and
 #                            milestones.schema.json, every field of kit/records/*.record-type.json and every key of
-#                            sdlc/observability/event.schema.json appears here exactly once
+#                            storyline/observability/event.schema.json appears here exactly once
 #
 # Columns
 #   yaml         the key in the repo file; dotted for nested maps (credit_estimate.monthly); null = not in git
@@ -15,9 +15,9 @@
 #   result_type  the Record field type: TEXT (512 characters), NUMBER, TIMESTAMP (UTC), BOOLEAN, TEXT_ENUM, JSON,
 #                ARTIFACT (large text; 15,000 vs 100k characters is CONFLICT K29); for a git-only key, the YAML type
 #   owner        who AUTHORS the value (the three sides of §6.5):
-#                  git         written only by ./scripts/sdlc and PR merges; reaches Records by Flow 1; a Tines-side
+#                  git         written only by ./scripts/storyline and PR merges; reaches Records by Flow 1; a Tines-side
 #                              change to it is ignored by tracker-fold (and reported), except when the row is new
-#                  tines       written in Tines (Pages, App endpoints, runtime specialists) with pending_repo_sync:
+#                  tines       written in Tines (Pages, App endpoints, runtime crew) with pending_repo_sync:
 #                              true; reaches git by Flow 2 (tracker-fold → a PR a human merges); Flow 1 still mirrors
 #                              git's value back once the merge lands
 #                  tines-only  operational bookkeeping in Tines; never mirrored to git (yaml: null)
@@ -35,8 +35,8 @@ version: 1
 
 record_types:
 
-  sdlc_backlog:
-    record_type_file: kit/records/sdlc_backlog.record-type.json
+  storyline_backlog:
+    record_type_file: kit/records/storyline_backlog.record-type.json
     repo_file: kit/tracker/backlog.yaml
     schema_file: kit/tracker/backlog.schema.json
     list_key: stories
@@ -70,16 +70,16 @@ record_types:
       - { yaml: null,                    record: specialist_due,          result_type: TEXT_ENUM, owner: tines-only }
       - { yaml: null,                    record: specialist_status,       result_type: TEXT_ENUM, owner: tines-only }
       - { yaml: null,                    record: proposal,                result_type: JSON,      owner: tines-only }
-      - { yaml: null,                    record: brief,                   result_type: ARTIFACT,  owner: tines, file: "sdlc/work/<slug>/intake.md" }
-      - { yaml: null,                    record: retro,                   result_type: ARTIFACT,  owner: tines, file: "sdlc/work/<slug>/retro.md" }
+      - { yaml: null,                    record: brief,                   result_type: ARTIFACT,  owner: tines, file: "storyline/work/<slug>/intake.md" }
+      - { yaml: null,                    record: retro,                   result_type: ARTIFACT,  owner: tines, file: "storyline/work/<slug>/retro.md" }
       - { yaml: null,                    record: last_actor,              result_type: TEXT,      owner: tines-only }
       - { yaml: null,                    record: last_transition_at,      result_type: TIMESTAMP, owner: tines-only }
     # Not a field: the file-level keys `version` and `wip_limit_per_owner` (git only; wip_limit_per_owner mirrors
     # state-machine.yaml caps.wip_limit_per_owner).
     file_keys: [version, wip_limit_per_owner, stories]
 
-  sdlc_milestones:
-    record_type_file: kit/records/sdlc_milestones.record-type.json
+  storyline_milestones:
+    record_type_file: kit/records/storyline_milestones.record-type.json
     repo_file: kit/tracker/milestones.yaml
     schema_file: kit/tracker/milestones.schema.json
     list_key: milestones
@@ -97,10 +97,10 @@ record_types:
       - { yaml: null,            record: pending_repo_sync, result_type: BOOLEAN,   owner: tines-only }
     file_keys: [version, milestones]
 
-  sdlc_events:
-    record_type_file: kit/records/sdlc_events.record-type.json
-    repo_file: "sdlc/work/<slug>/events.jsonl"
-    schema_file: sdlc/observability/event.schema.json
+  storyline_events:
+    record_type_file: kit/records/storyline_events.record-type.json
+    repo_file: "storyline/work/<slug>/events.jsonl"
+    schema_file: storyline/observability/event.schema.json
     list_key: null                                   # one JSON object per line
     key: null                                        # append-only; tracker-fold dedupes on (ts, event_type, gate, decision, agent)
     fields:
@@ -125,6 +125,6 @@ record_types:
       - { yaml: refs,           record: ref,            result_type: TEXT,      owner: git, transform: refs_to_ref }
       - { yaml: tracker_rev,    record: tracker_rev,    result_type: NUMBER,    owner: git }
       - { yaml: sha,            record: source_sha,     result_type: TEXT,      owner: git }
-    # Events flow both ways but are never edited: transitions reach sdlc_events through Flow 1 (section B, B8);
-    # Tines-side events (gate decisions on the Page, runtime specialist runs, D9) reach events.jsonl through the
-    # outbox's events[] and tracker-fold. IDE-side specialist runs stay in events.jsonl only.
+    # Events flow both ways but are never edited: transitions reach storyline_events through Flow 1 (section B, B8);
+    # Tines-side events (gate decisions on the Page, runtime crew member runs, D9) reach events.jsonl through the
+    # outbox's events[] and tracker-fold. IDE-side crew member runs stay in events.jsonl only.
