@@ -9,7 +9,7 @@ Spec: REPO-DESIGN.md §7.1 (the setup-report PR), §7.2 A16 (the config commit) 
     ``kit/tenant/setup-report.json``, and **fills placeholders only**:
 
     * ``stories/_manifest.yaml`` — ``environments.dev.team_id`` / ``environments.prod.team_id`` from the config's
-      team ids; ``stories.kit-factory.prod.story_id`` from the report's ``kit_story_id`` (so ``ship.yml`` changes the
+      team ids; ``stories.kit-launch.prod.story_id`` from the report's ``kit_story_id`` (so ``ship.yml`` changes the
       imported copy through ``versionReplace`` instead of creating a second ``[KIT] 00``)
     * ``policies/never-touch.yml`` — the report's ``kit_story_id`` appended to ``story_ids``; the prod (ops) team
       id in ``teams`` in place of the ``0`` placeholder
@@ -29,10 +29,10 @@ Spec: REPO-DESIGN.md §7.1 (the setup-report PR), §7.2 A16 (the config commit) 
 
 ``./scripts/kit sync-resources [--env prod] [--dry-run]``
     ``kit-sync.yml`` on every merge to ``main``, with the ops-team Editor key of the GitHub environment
-    ``kit-sync``: under the ``sdlc_sync_lock`` compare-and-swap (``POST /api/v1/global_resources/{id}/replace``
-    with ``if_value: free``), ``PUT /api/v1/global_resources/{id}`` the whole value of ``sdlc_state_machine``,
+    ``kit-sync``: under the ``storyline_sync_lock`` compare-and-swap (``POST /api/v1/global_resources/{id}/replace``
+    with ``if_value: free``), ``PUT /api/v1/global_resources/{id}`` the whole value of ``storyline_state_machine``,
     ``kit_catalog`` and ``kit_config`` (with ``tenant_host`` = ``$TINES_TENANT.tines.com`` and ``environment:
-    prod``); replace the ``sdlc_limits`` keys it owns (never ``enabled`` or ``guards_confirmed``); write each
+    prod``); replace the ``storyline_limits`` keys it owns (never ``enabled`` or ``guards_confirmed``); write each
     Resource's hash to ``kit_state.hash_<name>``; release the lock (also on failure). Resource ids come from the
     committed setup report (``created.resources[]``). Refused outside GitHub Actions on ``main`` unless
     ``--dry-run``. The whole-value PUT body is ``{"value": …}`` — VERIFY (the key name is not in the kit's
@@ -105,7 +105,7 @@ MANIFEST = Path("stories/_manifest.yaml")
 NEVER_TOUCH = Path("policies/never-touch.yml")
 CEILINGS = Path("policies/cost-ceilings.yml")
 SETUP_REPORT = Path("kit/tenant/setup-report.json")
-KIT_SLUG = "kit-factory"
+KIT_SLUG = "kit-launch"
 KIT_AGENTS = ("planner", "brief_writer", "retro_writer", "llm_probe", "llm_tool_probe")
 ALL_TARGETS = ("manifest", "never-touch", "ceilings", "tracker")
 PROVIDER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")
@@ -575,7 +575,7 @@ def cmd_sync(argv: list[str]) -> int:
     if report is None:
         raise ScriptError(f"{SETUP_REPORT} does not exist: the Resource ids come from the setup report")
     ids = resource_ids(report)
-    needed = ["sdlc_sync_lock", "kit_state", *SYNCED_RESOURCES]
+    needed = ["storyline_sync_lock", "kit_state", *SYNCED_RESOURCES]
     missing = [n for n in needed if n not in ids]
     if missing:
         raise ScriptError(f"the setup report lists no id for {missing} (created.resources[]); add them by PR")
@@ -588,8 +588,8 @@ def cmd_sync(argv: list[str]) -> int:
     bundle_form = bundle_resource_values(root, config)                     # what is fingerprinted
     hashes = {name: resource_hash(bundle_form[name]) for name in SYNCED_RESOURCES}
     plan = {"resources": {name: {"id": ids[name], "hash": hashes[name]} for name in SYNCED_RESOURCES},
-            "lock": ids["sdlc_sync_lock"], "kit_state": ids["kit_state"],
-            "limits_keys": sorted(values["sdlc_limits"].keys()), "dry_run": args.dry_run}
+            "lock": ids["storyline_sync_lock"], "kit_state": ids["kit_state"],
+            "limits_keys": sorted(values["storyline_limits"].keys()), "dry_run": args.dry_run}
     if args.dry_run:
         print(json.dumps(plan, indent=2))
         eprint("[kit] sync-resources: dry run — nothing was sent")
@@ -597,7 +597,7 @@ def cmd_sync(argv: list[str]) -> int:
 
     client = client_from_env()
     token = f"kit-sync-{os.environ.get('GITHUB_RUN_ID') or utc_now()}"
-    lock_path = f"/api/v1/global_resources/{ids['sdlc_sync_lock']}/replace"
+    lock_path = f"/api/v1/global_resources/{ids['storyline_sync_lock']}/replace"
     acquired = False
     for attempt in range(1, LOCK_ATTEMPTS + 1):
         try:
@@ -606,24 +606,24 @@ def cmd_sync(argv: list[str]) -> int:
             break
         except ApiError as exc:
             if exc.status != 422:
-                raise ScriptError(f"acquiring sdlc_sync_lock failed: {exc}") from None
-            eprint(f"[kit] sdlc_sync_lock is held (a tracker sync is running); retry {attempt}/{LOCK_ATTEMPTS} in {LOCK_WAIT_SECONDS}s")
+                raise ScriptError(f"acquiring storyline_sync_lock failed: {exc}") from None
+            eprint(f"[kit] storyline_sync_lock is held (a tracker sync is running); retry {attempt}/{LOCK_ATTEMPTS} in {LOCK_WAIT_SECONDS}s")
             time.sleep(LOCK_WAIT_SECONDS)
     if not acquired:
-        eprint("[kit] sdlc_sync_lock stayed held; nothing was written. The next merge or a dispatch re-runs kit-sync.yml.")
+        eprint("[kit] storyline_sync_lock stayed held; nothing was written. The next merge or a dispatch re-runs kit-sync.yml.")
         return 3
     written: list[str] = []
     try:
-        for name in ("sdlc_state_machine", "kit_catalog", "kit_config"):
+        for name in ("storyline_state_machine", "kit_catalog", "kit_config"):
             # VERIFY: the whole-value PUT body key (A19's create body uses `value`)
             client.put(f"/api/v1/global_resources/{ids[name]}", {"value": values[name]})
             written.append(name)
-        limits_path = f"/api/v1/global_resources/{ids['sdlc_limits']}/replace"
-        for key, value in sorted(values["sdlc_limits"].items()):
+        limits_path = f"/api/v1/global_resources/{ids['storyline_limits']}/replace"
+        for key, value in sorted(values["storyline_limits"].items()):
             if key in LIMITS_HUMAN_KEYS:
                 continue
             client.post(limits_path, {"key": key, "value": value})
-        written.append("sdlc_limits (owned keys)")
+        written.append("storyline_limits (owned keys)")
         state_path = f"/api/v1/global_resources/{ids['kit_state']}/replace"
         for name, digest in hashes.items():
             client.post(state_path, {"key": f"hash_{name}", "value": digest})
@@ -634,8 +634,8 @@ def cmd_sync(argv: list[str]) -> int:
         try:
             client.post(lock_path, {"key": "lock", "value": "free", "if_value": token})
         except ApiError as exc:
-            eprint(f"[kit] warning: releasing sdlc_sync_lock failed ({exc}); free it with "
-                   f"./scripts/tines resource-cas {ids['sdlc_sync_lock']} --key lock --value free --if-value {token}")
+            eprint(f"[kit] warning: releasing storyline_sync_lock failed ({exc}); free it with "
+                   f"./scripts/tines resource-cas {ids['storyline_sync_lock']} --key lock --value free --if-value {token}")
     print(json.dumps({"written": written, "hashes": hashes}, indent=2))
     eprint(f"[kit] sync-resources: wrote {', '.join(written)}")
     return 0

@@ -4,9 +4,9 @@
 # Field ↔ Record mapping: field-map.yaml. The sync contract and the rev rules: README.md in this folder.
 #
 # Never edit by hand, and never through the editor's Write/Edit tools (denied on kit/tracker/** in
-# .claude/settings.json). The only writers are ./scripts/sdlc (intake, apply, advance, gate) and ./scripts/kit
+# .claude/settings.json). The only writers are ./scripts/storyline (intake, apply, advance, gate) and ./scripts/kit
 # (tracker-fold for Tines-side changes, apply-config for the day-1 config), and every change reaches main through
-# a PR a human merges. A PR that changes a row sets its `rev` to main's rev + 1; sdlc.yml rejects any other value.
+# a PR a human merges. A PR that changes a row sets its `rev` to main's rev + 1; storyline.yml rejects any other value.
 #
 # Rules for every row: `key` is the slug (generated once, never changed) · `owner` is a role, never a person ·
 # timestamps are UTC with Z (Records drop offsets) · `library_seed_id` comes from kit/catalog/library-seeds.yaml
@@ -14,10 +14,10 @@
 # mode-4-server · `provider` is one of tines_provided | custom | local | none.
 #
 # The template carries three rows: the scaffold's example story and the ops sweep (both seeded in every customer
-# backlog; [KIT] 00 A21 creates their Records rows when absent), and the kit story itself. The kit-factory row stays
-# in design: it cannot pass G1 as ./scripts/sdlc ready checks it (no sdlc/work/kit-factory/ design or cases; never
-# new: true and prod id 0), so the maintainer release reviews G1 and G2 by hand on stories/kit-factory/DESIGN.md and
-# sections/* and runs the build with SDLC_ENFORCE=0 (REPO-DESIGN.md §15.6 step 1).
+# backlog; [KIT] 00 A21 creates their Records rows when absent), and the kit story itself. The kit-launch row stays
+# in design: it cannot pass G1 as ./scripts/storyline ready checks it (no storyline/work/kit-launch/ design or cases; never
+# new: true and prod id 0), so the maintainer release reviews G1 and G2 by hand on stories/kit-launch/DESIGN.md and
+# sections/* and runs the build with STORYLINE_ENFORCE=0 (REPO-DESIGN.md §15.6 step 1).
 
 version: 1
 wip_limit_per_owner: 1
@@ -58,9 +58,9 @@ stories:
     prod_story_id: 0
     live_since: ""
     rev: 1
-  - key: kit-factory
-    title: "[KIT] 00 · Run the story factory"
-    use_case: "Provision a customer's repository and tenant from one kickoff Page, keep the tracker in sync between git and Records, and dispatch the tool-less runtime specialists."
+  - key: kit-launch
+    title: "[KIT] 00 · Launch Storyworks"
+    use_case: "Provision a customer's repository and tenant from one kickoff Page, keep the tracker in sync between git and Records, and dispatch the tool-less runtime crew."
     library_seed_id: null
     mode: none
     owner: platform

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "agentic-story-factory/kit/tracker/milestones.schema.json",
+  "$id": "tines-storyworks/kit/tracker/milestones.schema.json",
   "title": "The onboarding milestones (kit/tracker/milestones.yaml)",
-  "description": "The day-1, week-1 and week-4 milestones of REPO-DESIGN.md §11.1, mirrored into the sdlc_milestones Record type (§8.1) and seeded in Tines by [KIT] 00 A22. kit/ONBOARDING.md is the runbook that mirrors this file. Validated by sdlc.yml and by ./scripts/kit before any write; keys map to Record fields in kit/tracker/field-map.yaml.",
+  "description": "The day-1, week-1 and week-4 milestones of REPO-DESIGN.md §11.1, mirrored into the storyline_milestones Record type (§8.1) and seeded in Tines by [KIT] 00 A22. kit/ONBOARDING.md is the runbook that mirrors this file. Validated by storyline.yml and by ./scripts/kit before any write; keys map to Record fields in kit/tracker/field-map.yaml.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "milestones"],

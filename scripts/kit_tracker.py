@@ -5,7 +5,7 @@ Spec: REPO-DESIGN.md §6.5 (state, field ownership, Flow 1, Flow 2, conflicts, e
 §7.7 (section E), §8.1 (Record types), §8.3 (the repo-side tracker files). Called through ``./scripts/kit``:
 
 ``./scripts/kit tracker-json [--full] [--out FILE] [--push]``
-    (``--out`` only under ``.sdlc/``, or ``$RUNNER_TEMP`` in GitHub Actions — never over repository configuration)
+    (``--out`` only under ``.storyline/``, or ``$RUNNER_TEMP`` in GitHub Actions — never over repository configuration)
     Flow 1. Reads ``kit/tracker/backlog.yaml`` and ``milestones.yaml``, validates them, and converts them through
     ``kit/tracker/field-map.yaml`` into ``{schema_version, source_sha, full, entries[], milestones[], view}`` —
     Record-field names, UTC timestamps, empty values as null. ``view`` is the ``kit_tracker_view`` value that
@@ -17,7 +17,7 @@ Spec: REPO-DESIGN.md §6.5 (state, field ownership, Flow 1, Flow 2, conflicts, e
 ``./scripts/kit tracker-fold (--input FILE|- | --pull) [--summary FILE] [--pr-body FILE] [--dry-run]``
     Flow 2. Folds a section E ``pull`` response ``{items[{key, base_rev, outbox_seq, changes{}, brief_md?,
     retro_md?}], milestones[], events[]}`` into ``backlog.yaml`` / ``milestones.yaml``, writes ``intake.md`` or
-    ``retro.md`` under ``sdlc/work/<slug>/`` and appends the events Tines logged to ``events.jsonl``. Only fields
+    ``retro.md`` under ``storyline/work/<slug>/`` and appends the events Tines logged to ``events.jsonl``. Only fields
     whose owner side is ``tines`` are taken from Tines; phase/status/open_gate only through a Tines-side gate
     decision (G0, G6, G7, GB release, GX) or the D9 improve trigger, and only when state-machine.yaml allows the
     move. Every changed row's ``rev`` becomes main's rev + 1. A field that also changed in git since the item's
@@ -34,11 +34,11 @@ Spec: REPO-DESIGN.md §6.5 (state, field ownership, Flow 1, Flow 2, conflicts, e
     divergent rows (a ``tracker-drift`` PR: merge it to accept the tenant's state, close it and git wins at the
     next full sync). ``--snapshot-input FILE`` reads a saved response instead (offline). Exit 4 on divergence.
 
-Importable helpers (used by kit_bundle.py, kit_config.py and ``./scripts/sdlc check``):
+Importable helpers (used by kit_bundle.py, kit_config.py and ``./scripts/storyline check``):
 ``validate(instance, schema)``, ``tracker_problems(root)``, ``field_map_problems(root)``, ``load_tracker(root)``,
 ``dump_backlog`` / ``dump_milestones``, ``main_row_revs(root)``, ``make_event(...)``, ``append_events(...)``.
 
-Writes are refused outside the tracker touch set (``sdlc/lifecycle/touch-sets.yaml`` ``sets.tracker``). Nothing
+Writes are refused outside the tracker touch set (``storyline/lifecycle/touch-sets.yaml`` ``sets.tracker``). Nothing
 here ever prints a webhook URL. Dependencies: the standard library and PyYAML (``scripts/requirements.txt``).
 """
 
@@ -92,10 +92,10 @@ MILESTONES_SCHEMA = Path("kit/tracker/milestones.schema.json")
 RECORDS_DIR = Path("kit/records")
 CATALOG_SEEDS = Path("kit/catalog/library-seeds.yaml")
 CATALOG_STARTERS = Path("kit/catalog/starter-stories.yaml")
-STATE_MACHINE = Path("sdlc/lifecycle/state-machine.yaml")
-TOUCH_SETS = Path("sdlc/lifecycle/touch-sets.yaml")
-EVENT_SCHEMA = Path("sdlc/observability/event.schema.json")
-WORK_DIR = Path("sdlc/work")
+STATE_MACHINE = Path("storyline/lifecycle/state-machine.yaml")
+TOUCH_SETS = Path("storyline/lifecycle/touch-sets.yaml")
+EVENT_SCHEMA = Path("storyline/observability/event.schema.json")
+WORK_DIR = Path("storyline/work")
 
 KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 UTC_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$")
@@ -107,10 +107,10 @@ RUNTIME_AGENTS = ("planner", "brief_writer", "retro_writer", "brief-writer", "re
 EVENT_KEY_ORDER = ["ts", "story_key", "event_type", "from_phase", "to_phase", "gate", "decision", "actor",
                    "actor_kind", "agent", "model_tier", "model_reported", "turns", "credits_used", "summary",
                    "refs", "tracker_rev", "sha"]
-# The tracker touch set (sdlc/lifecycle/touch-sets.yaml sets.tracker) — the fallback when that file is absent.
-TRACKER_SET_FALLBACK = ["kit/tracker/backlog.yaml", "kit/tracker/milestones.yaml", "sdlc/work/*/intake.md",
-                        "sdlc/work/*/retro.md", "sdlc/work/*/go-live-review.md", "sdlc/work/*/ship.md",
-                        "sdlc/work/*/events.jsonl"]
+# The tracker touch set (storyline/lifecycle/touch-sets.yaml sets.tracker) — the fallback when that file is absent.
+TRACKER_SET_FALLBACK = ["kit/tracker/backlog.yaml", "kit/tracker/milestones.yaml", "storyline/work/*/intake.md",
+                        "storyline/work/*/retro.md", "storyline/work/*/go-live-review.md", "storyline/work/*/ship.md",
+                        "storyline/work/*/events.jsonl"]
 EXIT_DIVERGED = 4
 
 
@@ -406,7 +406,7 @@ def _row_order(fmap: "FieldMap", type_name: str) -> tuple[list[str], dict[str, l
 
 
 def dump_backlog(data: dict[str, Any], header: str, fmap: "FieldMap") -> str:
-    top, nested = _row_order(fmap, "sdlc_backlog")
+    top, nested = _row_order(fmap, "storyline_backlog")
     lines = [f"version: {emit_scalar(data.get('version', 1))}",
              f"wip_limit_per_owner: {emit_scalar(data.get('wip_limit_per_owner', 1))}",
              "stories:"]
@@ -427,7 +427,7 @@ def dump_backlog(data: dict[str, Any], header: str, fmap: "FieldMap") -> str:
 
 
 def dump_milestones(data: dict[str, Any], header: str, fmap: "FieldMap") -> str:
-    top, _ = _row_order(fmap, "sdlc_milestones")
+    top, _ = _row_order(fmap, "storyline_milestones")
     order = [k for k in top if k != "due_offset_days"]
     order.insert(order.index("due_date") if "due_date" in order else len(order), "due_offset_days")
     lines = [f"version: {emit_scalar(data.get('version', 1))}", "milestones:"]
@@ -663,7 +663,7 @@ class History:
 
 
 # --------------------------------------------------------------------------- #
-# Checks (also used by ./scripts/sdlc check)
+# Checks (also used by ./scripts/storyline check)
 # --------------------------------------------------------------------------- #
 
 
@@ -700,7 +700,7 @@ def field_map_problems(root: Path) -> list[str]:
         schema_file = spec.get("schema_file")
         if schema_file and (root / schema_file).exists():
             schema = read_json(root / schema_file)
-            if type_name == "sdlc_events":
+            if type_name == "storyline_events":
                 props = set((schema.get("properties") or {}).keys())
             else:
                 list_key = spec.get("list_key")
@@ -731,12 +731,12 @@ def enum_problems(root: Path) -> list[str]:
     phases = all_phases(sm)
     gates = [sm.get("open_gate_none", "none")] + list(sm.get("gates") or [])
     expected = {
-        ("sdlc_backlog", "phase"): phases,
-        ("sdlc_backlog", "status"): list(sm.get("statuses") or []),
-        ("sdlc_backlog", "open_gate"): gates,
-        ("sdlc_events", "from_phase"): ["none"] + phases,
-        ("sdlc_events", "to_phase"): ["none"] + phases,
-        ("sdlc_events", "gate"): gates,
+        ("storyline_backlog", "phase"): phases,
+        ("storyline_backlog", "status"): list(sm.get("statuses") or []),
+        ("storyline_backlog", "open_gate"): gates,
+        ("storyline_events", "from_phase"): ["none"] + phases,
+        ("storyline_events", "to_phase"): ["none"] + phases,
+        ("storyline_events", "gate"): gates,
     }
     for (type_name, field), values in expected.items():
         actual = record_enum(root, type_name, field)
@@ -748,8 +748,8 @@ def enum_problems(root: Path) -> list[str]:
         if row[field].get("enum") != values:
             problems.append(f"{BACKLOG_SCHEMA} {field}: {row[field].get('enum')} ≠ state-machine.yaml {values}")
     for field in ("mode", "tier", "provider"):
-        if row[field].get("enum") != record_enum(root, "sdlc_backlog", field):
-            problems.append(f"{BACKLOG_SCHEMA} {field} enum ≠ kit/records/sdlc_backlog.record-type.json")
+        if row[field].get("enum") != record_enum(root, "storyline_backlog", field):
+            problems.append(f"{BACKLOG_SCHEMA} {field} enum ≠ kit/records/storyline_backlog.record-type.json")
     per_phase = {}
     for clause in schema["$defs"]["row"].get("allOf") or []:
         phase = (((clause.get("if") or {}).get("properties") or {}).get("phase") or {}).get("const")
@@ -858,10 +858,10 @@ def strip_tenant_only(events: list[dict[str, Any]], notes: list[str], key: str) 
 
 
 def event_from_record(raw: dict[str, Any], fmap: FieldMap, tracker_rev: int) -> tuple[Optional[dict[str, Any]], list[str]]:
-    """An sdlc_events Record (as the outbox returns it) → one events.jsonl line; (event, problems)."""
+    """An storyline_events Record (as the outbox returns it) → one events.jsonl line; (event, problems)."""
     notes: list[str] = []
     out: dict[str, Any] = {}
-    for f in fmap.fields("sdlc_events"):
+    for f in fmap.fields("storyline_events"):
         ykey, rkey = f.get("yaml"), f.get("record")
         if not ykey:
             continue  # actor_ref, input_tokens, output_tokens stay in the tenant
@@ -1001,8 +1001,8 @@ def build_sync_payload(root: Path, full: bool) -> dict[str, Any]:
         "schema_version": 1,
         "source_sha": sha,
         "full": bool(full),
-        "entries": [row_to_entry(r, fmap, "sdlc_backlog") for r in stories],
-        "milestones": [row_to_entry(m, fmap, "sdlc_milestones") for m in milestones.get("milestones") or []],
+        "entries": [row_to_entry(r, fmap, "storyline_backlog") for r in stories],
+        "milestones": [row_to_entry(m, fmap, "storyline_milestones") for m in milestones.get("milestones") or []],
         "view": view,
     }
 
@@ -1037,7 +1037,7 @@ def post_webhook(var: str, body: dict[str, Any], timeout: int = 60) -> tuple[int
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(url, data=data, method="POST",
                                      headers={"Content-Type": "application/json", "Accept": "application/json",
-                                              "User-Agent": "agentic-story-factory-kit/1.0"})
+                                              "User-Agent": "tines-storyworks-kit/1.0"})
     last_error = ""
     for attempt in range(1, 4):
         try:
@@ -1100,7 +1100,7 @@ def resolve_transition(sm: dict[str, Any], from_phase: str, gate: str, decision:
                        attempt: Optional[int] = None) -> Optional[tuple[str, Optional[str]]]:
     """(to_phase, status) for a gate decision from ``from_phase``, per state-machine.yaml; None when not allowed.
 
-    Rows are read in file order and the first match wins (state-machine.yaml, "How ./scripts/sdlc reads
+    Rows are read in file order and the first match wins (state-machine.yaml, "How ./scripts/storyline reads
     transitions"): a row with a `decision` matches only that decision; a row without one is the catch-all for its
     gate. "$same" resolves to from_phase; "$previous" and quoted expressions come back as the token itself (the
     Tines-side value is then accepted when it is a valid phase/status); a missing status is the target phase's
@@ -1245,18 +1245,18 @@ class Folder:
             "live_since": "", "rev": 0,
         }
         for rec_field, value in changes.items():
-            f = self.fmap.by_record("sdlc_backlog", rec_field)
+            f = self.fmap.by_record("storyline_backlog", rec_field)
             if not f or not f.get("yaml") or f.get("owner") == "tines-only":
                 continue
             if f["yaml"] in NEW_ROW_FIXED:
                 # a new row always starts intake / active / no gate / attempt 0: a Tines-supplied state would let a
-                # merge skip G0, G1 and G2 (sdlc.yml's pr_tracker_transitions refuses it too)
+                # merge skip G0, G1 and G2 (storyline.yml's pr_tracker_transitions refuses it too)
                 if canonical(from_record_value(value, f)) != canonical(row[f["yaml"]]):
                     self.summary["notes"].append(f"{key}: a new row starts intake/active; the Tines-side {f['yaml']} "
                                                  f"{value!r} was not folded")
                 continue
             new = from_record_value(value, f)
-            if f["yaml"] == "mode" and new not in (record_enum(self.root, "sdlc_backlog", "mode") or []):
+            if f["yaml"] == "mode" and new not in (record_enum(self.root, "storyline_backlog", "mode") or []):
                 self.summary["notes"].append(f"{key}: mode {value!r} is not a tracker mode; folded as none (design sets it)")
                 new = "none"
             set_dotted(row, f["yaml"], new)
@@ -1307,14 +1307,14 @@ class Folder:
                 return
             self.backlog.setdefault("stories", []).append(row)
             created = True
-            changed_fields = sorted(f["yaml"] for f in self.fmap.mirrored("sdlc_backlog")
+            changed_fields = sorted(f["yaml"] for f in self.fmap.mirrored("storyline_backlog")
                                     if f["record"] in changes and f["yaml"] not in ("key", "rev", *NEW_ROW_FIXED))
         else:
             state_changes: dict[str, Any] = {}
             for rec_field, value in sorted(changes.items()):
-                f = self.fmap.by_record("sdlc_backlog", rec_field)
+                f = self.fmap.by_record("storyline_backlog", rec_field)
                 if f is None:
-                    ignored.append(f"{rec_field} (not a sdlc_backlog field)")
+                    ignored.append(f"{rec_field} (not a storyline_backlog field)")
                     continue
                 if f.get("owner") == "tines-only" or not f.get("yaml"):
                     continue
@@ -1326,7 +1326,7 @@ class Folder:
                     state_changes[f["yaml"]] = new
                     continue
                 if f.get("owner") != "tines":
-                    ignored.append(f"{f['yaml']} (git-owned; changed only by ./scripts/sdlc and PR merges)")
+                    ignored.append(f"{f['yaml']} (git-owned; changed only by ./scripts/storyline and PR merges)")
                     continue
                 if self.changed_in_git_since(self.history(), key, base_rev, int(row.get("rev") or 0), f["yaml"], current):
                     conflicts.append({"field": f["yaml"], "git": current, "tines": new, "base_rev": base_rev})
@@ -1358,7 +1358,7 @@ class Folder:
             if changed_fields:
                 row["rev"] = new_rev
 
-        # drafts from the runtime specialists → files (never over a human's work)
+        # drafts from the runtime crew → files (never over a human's work)
         file_changes = self.fold_drafts(key, row, item)
         changed_any = bool(changed_fields) or created or bool(file_changes)
         if file_changes and not changed_fields and not created:
@@ -1476,7 +1476,7 @@ class Folder:
             base_rev = 0
         changed: list[str] = []
         for rec_field, value in sorted(changes.items()):
-            f = self.fmap.by_record("sdlc_milestones", rec_field)
+            f = self.fmap.by_record("storyline_milestones", rec_field)
             if f is None or not f.get("yaml") or f.get("owner") == "tines-only":
                 continue
             new = from_record_value(value, f)
@@ -1590,7 +1590,7 @@ def pr_body(summary: dict[str, Any], title: str) -> str:
     lines.append("Tines-side changes folded into the tracker by `./scripts/kit tracker-fold` (REPO-DESIGN.md §6.5, "
                  "Flow 2). **They are provisional until a human merges this PR**; Flow 1 then brings the merged state "
                  "back into Records. Closing the PR discards them: the nightly snapshot clears the pending rows after "
-                 "`sdlc_limits.pending_reset_hours`, and the nightly full sync restores git's values.")
+                 "`storyline_limits.pending_reset_hours`, and the nightly full sync restores git's values.")
     lines.append("")
     if summary.get("changed"):
         lines += ["| Story | Fields | Drafts | rev |", "|---|---|---|---|"]
@@ -1604,7 +1604,7 @@ def pr_body(summary: dict[str, Any], title: str) -> str:
     if summary.get("conflicts"):
         lines += ["### ⚠ Conflicts — git's value was kept", "",
                   "Each field below changed in git after the Tines-side write it came from (the item's `base_rev` is "
-                  "below the row's rev), or the move is not one `sdlc/lifecycle/state-machine.yaml` allows. Git wins. "
+                  "below the row's rev), or the move is not one `storyline/lifecycle/state-machine.yaml` allows. Git wins. "
                   "To take the Tines value instead, change it here before merging.", "",
                   "| Row | Field | git | Tines | Why |", "|---|---|---|---|---|"]
         for c in summary["conflicts"]:
@@ -1613,7 +1613,7 @@ def pr_body(summary: dict[str, Any], title: str) -> str:
                          f"{c.get('why', 'changed in git since base_rev ' + str(c.get('base_rev')))} |")
         lines.append("")
     if summary.get("ignored"):
-        lines.append("**Ignored (git-owned fields change only through ./scripts/sdlc and PR merges):** " +
+        lines.append("**Ignored (git-owned fields change only through ./scripts/storyline and PR merges):** " +
                      "; ".join(f"`{i.get('key') or i.get('milestone')}` {i['field']}" for i in summary["ignored"]))
         lines.append("")
     if summary.get("refused"):
@@ -1648,7 +1648,7 @@ def compare_snapshot(root: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
         if str(rec.get("pending_repo_sync")).lower() == "true":
             continue  # a pending Tines-side change is an expected difference
         diffs = []
-        for f in fmap.mirrored("sdlc_backlog"):
+        for f in fmap.mirrored("storyline_backlog"):
             if f["record"] not in rec:
                 continue
             git_value = to_record_value(get_dotted(row, f["yaml"]), f)
@@ -1685,7 +1685,7 @@ def fold_divergent(root: Path, snapshot: dict[str, Any], report: dict[str, Any],
             continue
         trial = copy.deepcopy(row)
         for diff in d["fields"]:
-            f = folder.fmap.by_yaml("sdlc_backlog", diff["field"])
+            f = folder.fmap.by_yaml("storyline_backlog", diff["field"])
             if f:
                 set_dotted(trial, f["yaml"], from_record_value(rec.get(f["record"]), f))
         trial["rev"] = folder.revs.get(key, 0) + 1
@@ -1716,14 +1716,14 @@ def _run_ref() -> str:
 
 
 def check_json_out(root: Path, out: Path) -> Path:
-    """``tracker-json --out`` writes only under ``.sdlc/`` (local, gitignored) or ``$RUNNER_TEMP`` (GitHub Actions).
+    """``tracker-json --out`` writes only under ``.storyline/`` (local, gitignored) or ``$RUNNER_TEMP`` (GitHub Actions).
 
     Anywhere else would be an arbitrary file write past the editor's Write/Edit deny rules — for example JSON over
     ``policies/never-touch.yml`` (which then parses with no story_ids or name_patterns) or ``.claude/settings.json``.
     The target is resolved first, so a symlink or a ``..`` cannot lead out of an allowed folder.
     """
     target = (out if out.is_absolute() else Path.cwd() / out).resolve()
-    allowed = [(root / ".sdlc").resolve()]
+    allowed = [(root / ".storyline").resolve()]
     if os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("RUNNER_TEMP"):
         allowed.append(Path(os.environ["RUNNER_TEMP"]).resolve())
     for base in allowed:
@@ -1732,14 +1732,14 @@ def check_json_out(root: Path, out: Path) -> Path:
             return target
         except ValueError:
             continue
-    raise ScriptError(f"--out {out}: tracker-json writes only under .sdlc/ (or $RUNNER_TEMP in GitHub Actions); "
+    raise ScriptError(f"--out {out}: tracker-json writes only under .storyline/ (or $RUNNER_TEMP in GitHub Actions); "
                       "the default is stdout")
 
 
 def cmd_json(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="kit tracker-json", description="Flow 1: the tracker as Record-field JSON.")
     parser.add_argument("--full", action="store_true", help="mark the payload as a nightly full sync (B6 overwrites every non-pending row)")
-    parser.add_argument("--out", type=Path, help="write the payload here — only under .sdlc/, or $RUNNER_TEMP in CI (default: stdout, unless --push)")
+    parser.add_argument("--out", type=Path, help="write the payload here — only under .storyline/, or $RUNNER_TEMP in CI (default: stdout, unless --push)")
     parser.add_argument("--push", action="store_true", help="POST to $TRACKER_SYNC_URL — CI on main only")
     parser.add_argument("--check", action="store_true", help="validate the tracker and the field map; print nothing else")
     args = parser.parse_args(argv)

@@ -2,7 +2,7 @@
 
 _Spec: REPO-DESIGN.md §1.4 (supported plans), §4.5 and §6.5 (one instrument per gate), §7.1 (why `[KIT] 00` is not imported here), §9.1 (the no-Records dashboard), §10.3 ("Fallback", item 4). Everything marked VERIFY is in `docs/VERIFY.md`._
 
-`[KIT] 00 · Run the story factory` is **not imported** on this path. You set up by hand what the kickoff Page would have provisioned, keep the tracker in git only, and run the same lifecycle from the editor. The repository, its scripts, its gates in git and its CI are the same as on the full path.
+`[KIT] 00 · Launch Storyworks` is **not imported** on this path. You set up by hand what the kickoff Page would have provisioned, keep the tracker in git only, and run the same lifecycle from the editor. The repository, its scripts, its gates in git and its CI are the same as on the full path.
 
 ## Who is on this path
 
@@ -17,13 +17,13 @@ The kickoff Page sends both to this page (`is_community`: `plan_tier == communit
 
 | | Full path | This path |
 |---|---|---|
-| The lifecycle (`sdlc/`), its specialists and `./scripts/sdlc` | yes | **yes**, unchanged |
+| The lifecycle (`storyline/`), its crew and `./scripts/storyline` | yes | **yes**, unchanged |
 | Build through Mode 2, review, ship through change control, roll back | yes | **yes**, where the plan has change control (the scaffold's `ship.yml`, `promote.yml`, `rollback.yml`) |
 | The tracker | git + Records, kept in sync | **git only**: `kit/tracker/backlog.yaml` and `milestones.yaml` |
-| Tines-side gates (G0, G6, G7, GB release, GX) | the `gate_decision` Page | **`/sdlc-gate <slug> <gate> <decision>`**, run by a person |
-| Intake briefs | drafted by `brief_writer` in Tines | the orchestrator fills `sdlc/templates/intake-brief.md` with the owner |
-| Planner proposals, retro drafts | `planner`, `retro_writer` in Tines | none; the owner writes the retro from `sdlc/templates/retro.md` |
-| Improve triggers | detected by `[KIT] 00` section D | recorded by a person: `./scripts/sdlc advance <slug> --trigger …` |
+| Tines-side gates (G0, G6, G7, GB release, GX) | the `gate_decision` Page | **`/storyline-gate <slug> <gate> <decision>`**, run by a person |
+| Intake briefs | drafted by `brief_writer` in Tines | the showrunner fills `storyline/templates/intake-brief.md` with the owner |
+| Planner proposals, retro drafts | `planner`, `retro_writer` in Tines | none; the owner writes the retro from `storyline/templates/retro.md` |
+| Improve triggers | detected by `[KIT] 00` section D | recorded by a person: `./scripts/storyline advance <slug> --trigger …` |
 | Dashboard | App, or Pages, plus a Tines Dashboard | `kit/tracker/*.yaml` in GitHub |
 | The ops trio (router and sweep) | yes | **no** on Community Edition: the router needs Records, and the sweep needs Records and the AI Agent action |
 | Setup report | yes | none |
@@ -48,11 +48,11 @@ The kickoff Page sends both to this page (`is_community`: `plan_tier == communit
 
 The same as the full path, minus the kit story's parts:
 
-- Branch protection on `main`: require the one check `sdlc`, a CODEOWNERS review, no self-merge.
-- Replace `<org>` in `.github/CODEOWNERS` and the teams in `sdlc/gates/approvers.yaml`.
+- Branch protection on `main`: require the one check `storyline`, a CODEOWNERS review, no self-merge.
+- Replace `<org>` in `.github/CODEOWNERS` and the teams in `storyline/gates/approvers.yaml`.
 - The GitHub environments the scaffold's workflows use (`production` with required reviewers, `prod-read`, `break-glass` and `break-glass-2`), and the `tracker` environment holding **only** the `tracker-bot` App's id and private key. There are no tracker webhook URLs on this path: `tracker-sync.yml` validates the tracker and stops with a notice, and `tracker-pull.yml` has nothing to pull.
 - The `tracker-bot` GitHub App on this repository only, and "Allow GitHub Actions to create pull requests".
-- Optionally `ANTHROPIC_API_KEY`, so `sdlc.yml` calls `review.yml`'s independent reviewer.
+- Optionally `ANTHROPIC_API_KEY`, so `storyline.yml` calls `review.yml`'s independent reviewer.
 
 ### 3. Tines
 
@@ -68,24 +68,24 @@ Each builder runs `/tines-connect` and checks VERIFY K2 before the first build, 
 
 ## Run the lifecycle
 
-The commands are the full path's, with two differences: every Tines-side gate is recorded with `/sdlc-gate`, and nothing arrives from Tines by tracker PR.
+The commands are the full path's, with two differences: every Tines-side gate is recorded with `/storyline-gate`, and nothing arrives from Tines by tracker PR.
 
-1. **Add a story:** `./scripts/sdlc intake "<title>" --use-case <file> --owner <role> [--seed <id>]` — a new row in intake and `intake.md` from the template, on a `tracker/intake-<slug>` branch. Seed ids come only from `kit/catalog/library-seeds.yaml`.
-2. **Write the brief:** `/sdlc <slug> run` stops with the note to fill `sdlc/templates/intake-brief.md` with the owner. The orchestrator drafts it in the chat; the owner writes it into `sdlc/work/<slug>/intake.md` on the same branch (the model's Write and Edit are denied on `sdlc/work/**`). When every field is set, `./scripts/sdlc advance <slug>` opens G0.
-3. **Decide G0:** the owner or a G0 approver runs `/sdlc-gate <slug> G0 build` (or `reject`, or `park`). The command asks for a confirmation on the terminal, which a model cannot give, and records the decision with the decider's role on a `tracker/<slug>-G0` branch; that PR needs an approving review from the team `sdlc/gates/approvers.yaml` lists for G0.
+1. **Add a story:** `./scripts/storyline intake "<title>" --use-case <file> --owner <role> [--seed <id>]` — a new row in intake and `intake.md` from the template, on a `tracker/intake-<slug>` branch. Seed ids come only from `kit/catalog/library-seeds.yaml`.
+2. **Write the brief:** `/storyline <slug> run` stops with the note to fill `storyline/templates/intake-brief.md` with the owner. The showrunner drafts it in the chat; the owner writes it into `storyline/work/<slug>/intake.md` on the same branch (the model's Write and Edit are denied on `storyline/work/**`). When every field is set, `./scripts/storyline advance <slug>` opens G0.
+3. **Decide G0:** the owner or a G0 approver runs `/storyline-gate <slug> G0 build` (or `reject`, or `park`). The command asks for a confirmation on the terminal, which a model cannot give, and records the decision with the decider's role on a `tracker/<slug>-G0` branch; that PR needs an approving review from the team `storyline/gates/approvers.yaml` lists for G0.
 4. **Discover, design, build, verify, ship** exactly as on the full path ([`../../docs/09-lifecycle-walkthrough.md`](../../docs/09-lifecycle-walkthrough.md)).
-5. **Operate:** without the ops trio on Community Edition, a production story's monitoring is its story-level "Notify when any action fails" to the ops email list. Record an improve trigger yourself: `./scripts/sdlc advance <slug> --trigger high_finding | credit_variance | retro_due | owner_request | eval_regression [--note "…"]`.
-6. **Go-live, ownership, budget and escalation gates:** `/sdlc-gate <slug> G6 go_live`, `G7 keep | rescope | retire`, `GB unpark`, `GX resume | park | reject`.
+5. **Operate:** without the ops trio on Community Edition, a production story's monitoring is its story-level "Notify when any action fails" to the ops email list. Record an improve trigger yourself: `./scripts/storyline advance <slug> --trigger high_finding | credit_variance | retro_due | owner_request | eval_regression [--note "…"]`.
+6. **Go-live, ownership, budget and escalation gates:** `/storyline-gate <slug> G6 go_live`, `G7 keep | rescope | retire`, `GB unpark`, `GX resume | park | reject`.
 
-The template's backlog also carries a `kit-factory` row, which the maintainers use to build the kit story itself. On this path there is no kit story to build: leave the row alone.
+The template's backlog also carries a `kit-launch` row, which the maintainers use to build the kit story itself. On this path there is no kit story to build: leave the row alone.
 
 ## Recording the milestones
 
-The day-1, week-1 and week-4 milestones in `kit/tracker/milestones.yaml` apply here too, minus the criteria about Record types, Resources, the provider probe and the ops sweep that your plan does not have. No `./scripts/kit` or `./scripts/sdlc` subcommand sets a milestone's status; keep the checklists in [`../ONBOARDING.md`](../ONBOARDING.md) in the onboarding issue or PR.
+The day-1, week-1 and week-4 milestones in `kit/tracker/milestones.yaml` apply here too, minus the criteria about Record types, Resources, the provider probe and the ops sweep that your plan does not have. No `./scripts/kit` or `./scripts/storyline` subcommand sets a milestone's status; keep the checklists in [`../ONBOARDING.md`](../ONBOARDING.md) in the onboarding issue or PR.
 
 ## One licensed team with Records: a known gap
 
-`./scripts/sdlc` chooses the gate instrument from `kit/tenant/config.yaml`: the manual path is `plan.tier: community_edition` or `entitlements.records: false`. A Business or Enterprise tenant with **one** licensed team **and** Records is therefore treated as the full path — `/sdlc-gate` refuses G0, G6, G7, GB and GX there — while the `gate_decision` Page does not exist, because `[KIT] 00` is not imported. Until the scripts also read `plan.licensed_teams`, such a tenant has no instrument for those gates. Raise it with the kit's maintainers before starting a story; the kit's own recommendation for this tenant is a second licensed team and the full path.
+`./scripts/storyline` chooses the gate instrument from `kit/tenant/config.yaml`: the manual path is `plan.tier: community_edition` or `entitlements.records: false`. A Business or Enterprise tenant with **one** licensed team **and** Records is therefore treated as the full path — `/storyline-gate` refuses G0, G6, G7, GB and GX there — while the `gate_decision` Page does not exist, because `[KIT] 00` is not imported. Until the scripts also read `plan.licensed_teams`, such a tenant has no instrument for those gates. Raise it with the kit's maintainers before starting a story; the kit's own recommendation for this tenant is a second licensed team and the full path.
 
 ## A local model
 

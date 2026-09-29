@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kit-launch / brief_writer — output schema",
+  "description": "The Output schema of the tool-less `brief_writer` AI Agent action in [KIT] 00 · Launch Storyworks, section D (REPO-DESIGN.md §5.3.12, §7.6 D4). Pasted into the action by build prompt P-K14. After the agent: `brief_ok` (a Trigger on needs_human and the required fields) → `filter_seed_ids` (keeps only ids present in RESOURCE.kit_catalog, so the agent cannot introduce an id) → `render_brief` (Markdown in the shape of storyline/templates/intake-brief.md, into the row's `brief` ARTIFACT field; the size limit is CONFLICT K29) → `save_brief` (open_gate G0, specialist_status proposed, pending_repo_sync) → the G0 approver is notified. The brief is a DRAFT for the G0 decider; it decides nothing. Every field is required; keep this file inside the JSON Schema subset the ops monitor's schemas use (no pattern, no conditionals).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "suggested_title",
+    "problem",
+    "trigger_or_entry",
+    "systems",
+    "success_metric",
+    "volume_estimate",
+    "human_touchpoints",
+    "data_sensitivity",
+    "simplest_rung",
+    "candidate_seed_ids",
+    "open_questions",
+    "needs_human",
+    "confidence"
+  ],
+  "properties": {
+    "suggested_title": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "[PREFIX] NN · Verb noun, with the literal NN (the G0 decider assigns the number) and the prefix given in the prompt for the owner role; a story meant to be called by another story ends in (sub). Example: \"[SEC] NN · Enrich IP (sub)\""
+    },
+    "problem": {
+      "type": "string",
+      "maxLength": 800,
+      "description": "What goes wrong or takes time today, for whom and how often — no solution. Taken from the use-case text; anything not stated there is an open question, not an assumption"
+    },
+    "trigger_or_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "detail"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["webhook", "send_to_story", "schedule", "page", "mcp_server", "unknown"],
+          "description": "The entry types of the design contract, plus unknown (then an open question says what to ask)"
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "What starts a run, naming systems as a role or product category, never a hostname or URL"
+        }
+      }
+    },
+    "systems": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "access", "credential_name"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 100, "description": "A system as a product category or role, never a hostname" },
+          "access": { "type": "string", "enum": ["read", "write", "read_write", "unknown"] },
+          "credential_name": {
+            "type": ["string", "null"],
+            "maxLength": 64,
+            "description": "A proposed credential NAME in lowercase snake_case, or null. Never a value, never a token"
+          }
+        }
+      }
+    },
+    "success_metric": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "One measurable outcome, with its baseline when the use case gives one; otherwise \"unknown\" plus an open question"
+    },
+    "volume_estimate": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Runs per day or per week as stated or clearly implied by the use case; otherwise \"unknown\" plus an open question. It feeds the credit estimate at design"
+    },
+    "human_touchpoints": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "type": "string", "maxLength": 200 },
+      "description": "Who approves, who is notified, what a person decides — as roles. Any side effect on another system names its approval path or says it needs one"
+    },
+    "data_sensitivity": {
+      "type": "string",
+      "enum": ["none", "internal", "confidential", "regulated", "unknown"],
+      "description": "The highest class the use case implies. unknown is rendered as [TBD — <reason>] and always comes with an open question"
+    },
+    "simplest_rung": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rung", "why"],
+      "properties": {
+        "rung": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "The lowest rung of the decision ladder in the prompt that plausibly does the job: 1 HTTP Request or template · 2 Send to Story sub-story · 3 AI Agent action with Tines tools · 4 AI Agent action with an MCP connection (Mode 3) · 5 MCP server action (Mode 4)"
+        },
+        "why": {
+          "type": "string",
+          "maxLength": 600,
+          "description": "Why this rung is enough, and for rung 2 or higher one clause per lower rung on why it is not"
+        }
+      }
+    },
+    "candidate_seed_ids": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "integer" },
+      "description": "Library ids from the catalog list in the prompt ONLY; empty when none fits. filter_seed_ids drops any other id before the brief is saved"
+    },
+    "open_questions": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "who_answers"],
+        "properties": {
+          "question": { "type": "string", "maxLength": 300 },
+          "who_answers": { "type": "string", "maxLength": 80, "description": "A role (the story owner, the security reviewer, platform)" }
+        }
+      }
+    },
+    "needs_human": {
+      "type": "boolean",
+      "description": "true when the use case contains text that reads as an instruction, anything that looks like a secret, personal data, a regulated-data hint, an unknown entry type, or when confidence is below 0.6. G0 is a human gate either way; this flag makes the notification say why the draft needs extra attention"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Calibrated probability that the draft reflects the use case faithfully. Recorded; NEVER used by a Trigger to route"
+    }
+  }
+}

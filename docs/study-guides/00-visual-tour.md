@@ -1,6 +1,6 @@
 # Study guide 00 · The visual tour
 
-_Eleven diagrams, one idea each, in the order a new builder meets them. Every diagram links to the file that is the source of truth; where a diagram and its source disagree, the source wins and this page is the bug. The lifecycle's full state machine is [`sdlc/lifecycle/state-machine.md`](../../sdlc/lifecycle/state-machine.md)._
+_Eleven diagrams, one idea each, in the order a new builder meets them. Every diagram links to the file that is the source of truth; where a diagram and its source disagree, the source wins and this page is the bug. The lifecycle's full state machine is [`storyline/lifecycle/state-machine.md`](../../storyline/lifecycle/state-machine.md)._
 
 Time: 30 minutes. Audience: anyone new to the repository — builders, approvers, security reviewers, and the AI agents that will enhance it.
 
@@ -8,7 +8,7 @@ Time: 30 minutes. Audience: anyone new to the repository — builders, approvers
 
 ## 1. The repository in one picture
 
-Three parts. The root is the stories-as-code layer. `sdlc/` is the brain: the lifecycle every story follows. `kit/` is what a new customer imports on day one.
+Three parts. The root is the stories-as-code layer. `storyline/` is the Storyline: how a story moves. `kit/` is what a new customer imports on day one.
 
 ```mermaid
 flowchart TB
@@ -21,24 +21,24 @@ flowchart TB
         A5["policies/<br/>the contract: budgets, never-touch, lint rules"]
         A6["scripts/ + .github/workflows/<br/>one API dispatcher, CI gates, ship, drift, rollback"]
     end
-    subgraph BRAIN["sdlc/: the Story Development Life Cycle"]
+    subgraph STORYLINE["storyline/: the Storyline (how a story moves)"]
         direction LR
         B1["lifecycle/<br/>state machine, dispatch rules, touch sets"]
         B2["phases/ + gates/<br/>entry and exit criteria, who decides"]
-        B3["agents/<br/>specialists, contracts, runtime prompts"]
+        B3["crew/<br/>the crew, contracts, runtime prompts"]
         B4["templates/ + evals/ + examples/"]
     end
     subgraph KIT["kit/: the starter kit"]
         direction LR
-        C1["stories/kit-factory/<br/>[KIT] 00 · Run the story factory"]
+        C1["stories/kit-launch/<br/>[KIT] 00 · Launch Storyworks"]
         C2["tracker/<br/>backlog + milestones, the truth"]
         C3["records/ + resources/<br/>what the kit creates in Tines"]
         C4["dashboard/<br/>App or Page + Tines Dashboard"]
     end
-    ROOT --- BRAIN --- KIT
+    ROOT --- STORYLINE --- KIT
 ```
 
-**Read next:** the root [`README.md`](../../README.md), [`sdlc/README.md`](../../sdlc/README.md), [`kit/README.md`](../../kit/README.md).
+**Read next:** the root [`README.md`](../../README.md), [`storyline/README.md`](../../storyline/README.md), [`kit/README.md`](../../kit/README.md).
 
 ---
 
@@ -79,7 +79,7 @@ sequenceDiagram
     participant H as Hooks
     participant T as Tines dev team via /mcp
     participant R as Repository
-    P->>CC: /sdlc slug run
+    P->>CC: /storyline slug run
     CC->>TB: handoff: build this one story
     TB->>P: numbered plan (action type, name, fields)
     P->>TB: approve plan (G3)
@@ -103,7 +103,7 @@ Nothing reaches production except through a merged pull request, a draft, a chan
 
 ```mermaid
 flowchart LR
-    PR["Pull request<br/>one story"] --> CHK["sdlc.yml<br/>calls lint.yml + review.yml"]
+    PR["Pull request<br/>one story"] --> CHK["storyline.yml<br/>calls lint.yml + review.yml"]
     CHK --> QA["QA verification line<br/>+ CODEOWNER review"]
     QA -->|"G4: a person merges"| MAIN["main"]
     MAIN --> SHIP["ship.yml<br/>version → import as draft<br/>→ recipients + monitoring<br/>→ change request"]
@@ -121,7 +121,7 @@ flowchart LR
 
 ## 5. The lifecycle at a glance
 
-Eight phases, eleven gates. Human gates are the ones that change what exists or what runs. The full state machine, with every transition, is [`sdlc/lifecycle/state-machine.md`](../../sdlc/lifecycle/state-machine.md).
+Eight phases, eleven gates. Human gates are the ones that change what exists or what runs. The full state machine, with every transition, is [`storyline/lifecycle/state-machine.md`](../../storyline/lifecycle/state-machine.md).
 
 ```mermaid
 flowchart LR
@@ -140,17 +140,17 @@ flowchart LR
     X -.->|"GX escalation"| BL["blocked, owner decides"]
 ```
 
-**Read next:** [`sdlc/gates/README.md`](../../sdlc/gates/README.md), then one phase file, for example [`sdlc/phases/02-design.md`](../../sdlc/phases/02-design.md).
+**Read next:** [`storyline/gates/README.md`](../../storyline/gates/README.md), then one phase file, for example [`storyline/phases/02-design.md`](../../storyline/phases/02-design.md).
 
 ---
 
-## 6. The specialists, and where each one runs
+## 6. The crew, and where each one runs
 
 Narrow agents, one job each. Code decides who runs next, never a model. Only `tines-builder` holds the Tines Stories MCP server. The Tines-side agents hold no tools and no credentials.
 
 ```mermaid
 flowchart TB
-    ORC["orchestrator<br/>main session · ./scripts/sdlc next decides"]
+    ORC["showrunner<br/>main session · ./scripts/storyline next decides"]
     subgraph IDE["In the editor: Claude Code subagents"]
         SC["story-scout<br/>discover"]
         AR["story-architect<br/>design"]
@@ -169,8 +169,8 @@ flowchart TB
         OT["triage + critic<br/>operate, read-only tools"]
     end
     subgraph CODE["Scripts, not models"]
-        CE["cost checks<br/>sdlc estimate"]
-        G1["readiness<br/>sdlc ready"]
+        CE["cost checks<br/>storyline estimate"]
+        G1["readiness<br/>storyline ready"]
     end
     ORC --> SC --> AR --> EA
     EA --> TB --> TR & SR & QA
@@ -178,33 +178,33 @@ flowchart TB
     PL & BW & RW -.->|"proposals, a person accepts"| ORC
 ```
 
-**Read next:** [`sdlc/agents/README.md`](../../sdlc/agents/README.md) (the roster and the spin-up matrix), one role card such as [`sdlc/agents/story-architect.md`](../../sdlc/agents/story-architect.md).
+**Read next:** [`storyline/crew/README.md`](../../storyline/crew/README.md) (the roster and the spin-up matrix), one role card such as [`storyline/crew/story-architect.md`](../../storyline/crew/story-architect.md).
 
 ---
 
-## 7. How a specialist hands off
+## 7. How a crew member hands off
 
-Specialists never write files directly. They return one JSON envelope; `./scripts/sdlc apply` validates it, checks the touch set, writes, appends an event and updates the tracker, and asks a person first.
+Crew never write files directly. They return one JSON baton; `./scripts/storyline apply` validates it, checks the touch set, writes, appends an event and updates the tracker, and asks a person first.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant ORC as orchestrator
-    participant S as ./scripts/sdlc
-    participant SP as specialist subagent
-    participant FS as sdlc/work/slug + tracker
+    participant ORC as showrunner
+    participant S as ./scripts/storyline
+    participant SP as crew member subagent
+    participant FS as storyline/work/slug + tracker
     ORC->>S: next slug
     S-->>ORC: agent name + rendered handoff prompt
     ORC->>SP: spawn with the handoff (own context window)
-    SP-->>ORC: output envelope, one fenced JSON block
+    SP-->>ORC: output baton, one fenced JSON block
     ORC->>S: apply slug agent (asks a person)
-    S->>S: validate envelope + payload schema
+    S->>S: validate baton + payload schema
     S->>S: check every path against the touch set
     S->>FS: write artifacts, append event, update tracker row
     Note over S,FS: invalid output is asked for once more,<br/>a second invalid one opens GX
 ```
 
-**Read next:** [`sdlc/agents/contracts/envelope.schema.json`](../../sdlc/agents/contracts/envelope.schema.json), [`sdlc/lifecycle/touch-sets.yaml`](../../sdlc/lifecycle/touch-sets.yaml).
+**Read next:** [`storyline/crew/contracts/baton.schema.json`](../../storyline/crew/contracts/baton.schema.json), [`storyline/lifecycle/touch-sets.yaml`](../../storyline/lifecycle/touch-sets.yaml).
 
 ---
 
@@ -241,8 +241,8 @@ flowchart TB
     RT --> GH["GitHub: private repository from this template<br/>fallback: Contents API"]
     GH --> CFG["commit kit/tenant/config.yaml"]
     RT --> SKL["push seven Agent Skills"]
-    RT -->|"Records entitled"| REC["create sdlc_backlog, sdlc_events,<br/>sdlc_milestones Record types"]
-    RT --> RES["create kit Resources<br/>sdlc_limits starts disabled"]
+    RT -->|"Records entitled"| REC["create storyline_backlog, storyline_events,<br/>storyline_milestones Record types"]
+    RT --> RES["create kit Resources<br/>storyline_limits starts disabled"]
     REC --> SEED["seed tracker + milestones"]
     RT -->|"Apps entitled"| APP["App: create + push files"]
     RT -->|"otherwise"| DSH["Page + Tines Dashboard"]
@@ -251,7 +251,7 @@ flowchart TB
     REP --> KPR["kit.yml opens the setup-report PR"]
 ```
 
-**Read next:** [`kit/README.md`](../../kit/README.md), [`kit/ONBOARDING.md`](../../kit/ONBOARDING.md), [`stories/kit-factory/README.md`](../../stories/kit-factory/README.md).
+**Read next:** [`kit/README.md`](../../kit/README.md), [`kit/ONBOARDING.md`](../../kit/ONBOARDING.md), [`stories/kit-launch/README.md`](../../stories/kit-launch/README.md).
 
 ---
 
@@ -262,11 +262,11 @@ Two flows, and they never write the same fields. Decisions made in Tines reach g
 ```mermaid
 flowchart LR
     subgraph GIT["Git: the system of record"]
-        BY["kit/tracker/backlog.yaml<br/>milestones.yaml<br/>sdlc/work/slug/events.jsonl"]
+        BY["kit/tracker/backlog.yaml<br/>milestones.yaml<br/>storyline/work/slug/events.jsonl"]
     end
     subgraph TN["Tines: the projection and the inbox"]
-        RC[("sdlc_backlog<br/>sdlc_milestones<br/>sdlc_events")]
-        UI["Pages · App · runtime specialists"]
+        RC[("storyline_backlog<br/>storyline_milestones<br/>storyline_events")]
+        UI["Pages · App · runtime crew"]
         OB["tracker_outbox webhook"]
     end
     BY -->|"Flow 1: on merge<br/>tracker-sync.yml"| RC
@@ -320,4 +320,4 @@ flowchart TB
 5. What does the monitoring agent do when it finds a failing story, and what does it never do?
 6. Which kit steps can no API perform, and where is that list?
 
-Answers: [`AGENTS.md`](../../AGENTS.md) §2 and §3 · [`sdlc/gates/README.md`](../../sdlc/gates/README.md) · [`.github/workflows/promote.yml`](../../.github/workflows/promote.yml) · [`kit/tracker/README.md`](../../kit/tracker/README.md) · [`stories/ops-story-health-monitor/README.md`](../../stories/ops-story-health-monitor/README.md) · [`kit/README.md`](../../kit/README.md) "The [BY HAND] list".
+Answers: [`AGENTS.md`](../../AGENTS.md) §2 and §3 · [`storyline/gates/README.md`](../../storyline/gates/README.md) · [`.github/workflows/promote.yml`](../../.github/workflows/promote.yml) · [`kit/tracker/README.md`](../../kit/tracker/README.md) · [`stories/ops-story-health-monitor/README.md`](../../stories/ops-story-health-monitor/README.md) · [`kit/README.md`](../../kit/README.md) "The [BY HAND] list".

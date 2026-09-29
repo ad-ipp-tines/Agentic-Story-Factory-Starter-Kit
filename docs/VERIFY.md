@@ -48,8 +48,8 @@ Statuses: `open` · `confirmed` · `refuted` · `partial` (say which part) · `n
 | E2 | `tools/call` event includes the tool result? | open | — | — | — | — |
 | E3 | Self-hosted release-note version mapping | open | — | — | — | — |
 | E4 | `GET /api/v1/stories/{id}` exposes `disabled` (so `story-disable --want` can skip a toggle); `POST …/disable` takes no body | open | — | — | — | — |
-| E5 | `GET /api/v1/ai_usage` envelope and row keys (story/team/action identity, token key names), `YYYY-MM-DD` dates, the time zone of `today` | open | — | — | — | — |
-| E6 | `GET /api/v1/audit_logs` envelope; `created_at` on rows; where a row carries the story id (the client-side filter matches any `story_id` key) | open | — | — | — | — |
+| E5 | `GET /api/v1/ai_usage` response wrapper and row keys (story/team/action identity, token key names), `YYYY-MM-DD` dates, the time zone of `today` | open | — | — | — | — |
+| E6 | `GET /api/v1/audit_logs` response wrapper; `created_at` on rows; where a row carries the story id (the client-side filter matches any `story_id` key) | open | — | — | — | — |
 | E7 | Change-request view: location of `status` and the request id; `…/change_request/promote` response; `bypass_approval` needs STORY_MANAGE | open | — | — | — | — |
 | E8 | Claude Code CLI headless flags in `propose-fix.yml`: `--strict-mcp-config` + empty `--mcp-config`, `--setting-sources project`, path-scoped `Edit(stories/**)` / `Write(.tines/**)`, `--output-format json` fields | open | — | — | — | — |
 | E9 | The MCP server action carries the "Notify if no events emitted" monitor (`ops-tools-server` watchdog) | open | — | — | — | — |
@@ -113,7 +113,7 @@ Paste the tool names your client lists, one per line, with the date and the clie
 
 Append one line per check, newest first: `YYYY-MM-DD · item # · role · outcome · note`.
 
-- 2026-09-27 · K1–K45 · kit-docs-and-root builder · rows added · the story factory's items (REPO-DESIGN.md §16, whose "How to confirm" and "What changes when confirmed" columns are the method for each); the kit also relies on #1, #2, #4, #5, #8, #11, #13, #14 and #26
+- 2026-09-27 · K1–K45 · kit-docs-and-root builder · rows added · Storyworks' items (REPO-DESIGN.md §16, whose "How to confirm" and "What changes when confirmed" columns are the method for each); the kit also relies on #1, #2, #4, #5, #8, #11, #13, #14 and #26
 - 2026-09-25 · E9–E10 · docs builder · rows added · assumptions `stories/ops-tools-server/story.meta.yaml` carried without a ledger entry; method in `07-verify-before-you-rely-on-it.md` §F
 - 2026-09-25 · E4–E8 · ci builder · rows added · assumptions made by `story-disable`, `ai-usage`, `audit`, `cr-promote` and `propose-fix.yml`; how to confirm each is in `scripts/README.md` ("VERIFY items these scripts depend on")
 - 2026-09-24 · all · docs builder · ledger created · every item open; method in `07-verify-before-you-rely-on-it.md`

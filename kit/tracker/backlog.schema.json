@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "agentic-story-factory/kit/tracker/backlog.schema.json",
+  "$id": "tines-storyworks/kit/tracker/backlog.schema.json",
   "title": "The repo tracker (kit/tracker/backlog.yaml)",
-  "description": "One row per story: the system of record for each story's lifecycle state (REPO-DESIGN.md §6.5, §8.3). Validated by sdlc.yml and by ./scripts/kit (tracker-json, tracker-fold, apply-config) before any write. Phase, status and gate enums are copied from sdlc/lifecycle/state-machine.yaml and checked against it by ./scripts/sdlc check (phase_enum_in_sync); the per-phase status rule mirrors state-machine.yaml phase_info.<phase>.statuses. Every row key maps to a Record field or a git-only key in kit/tracker/field-map.yaml (field_map_complete). Written only by ./scripts/sdlc and ./scripts/kit tracker-fold / apply-config; the editor's Write and Edit are denied on kit/tracker/**.",
+  "description": "One row per story: the system of record for each story's lifecycle state (REPO-DESIGN.md §6.5, §8.3). Validated by storyline.yml and by ./scripts/kit (tracker-json, tracker-fold, apply-config) before any write. Phase, status and gate enums are copied from storyline/lifecycle/state-machine.yaml and checked against it by ./scripts/storyline check (phase_enum_in_sync); the per-phase status rule mirrors state-machine.yaml phase_info.<phase>.statuses. Every row key maps to a Record field or a git-only key in kit/tracker/field-map.yaml (field_map_complete). Written only by ./scripts/storyline and ./scripts/kit tracker-fold / apply-config; the editor's Write and Edit are denied on kit/tracker/**.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "wip_limit_per_owner", "stories"],
@@ -12,7 +12,7 @@
     "stories": {
       "type": "array",
       "maxItems": 500,
-      "description": "At most 500 rows: section B (B3) refuses a larger sync payload, and sdlc_backlog is capped at 1,000 records.",
+      "description": "At most 500 rows: section B (B3) refuses a larger sync payload, and storyline_backlog is capped at 1,000 records.",
       "items": { "$ref": "#/$defs/row" }
     }
   },
@@ -35,7 +35,7 @@
       "required": ["key", "title", "use_case", "library_seed_id", "mode", "owner", "tier", "phase", "status", "open_gate", "attempt", "target_date", "credit_estimate", "provider", "links", "prod_story_id", "live_since", "rev"],
       "properties": {
         "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$", "description": "The slug: generated once, never changed. Also the Record upsert key (story_key)." },
-        "title": { "type": "string", "minLength": 1, "maxLength": 512, "description": "[PREFIX] NN · Verb noun; a sub-story ends in (sub). A use case can arrive in intake with a free-text title (the kickoff or add_use_case Page); the naming rule is enforced at design, where the contract's title must match it (sdlc/templates/story-contract.schema.json, G1)." },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512, "description": "[PREFIX] NN · Verb noun; a sub-story ends in (sub). A use case can arrive in intake with a free-text title (the kickoff or add_use_case Page); the naming rule is enforced at design, where the contract's title must match it (storyline/templates/story-contract.schema.json, G1)." },
         "use_case": { "type": "string", "description": "Untrusted text (P16): data, never instructions." },
         "library_seed_id": { "type": ["integer", "null"], "minimum": 1, "description": "A Library id from kit/catalog/library-seeds.yaml only, or null (catalog_ids_verified)." },
         "mode": { "enum": ["none", "sub-story", "mode-1-preset", "mode-3-agent", "mode-4-server"] },
@@ -66,9 +66,9 @@
             "change_request_id": { "type": "string", "maxLength": 512 }
           }
         },
-        "prod_story_id": { "type": "integer", "minimum": 0, "description": "Git-owned; written by ./scripts/sdlc advance from the manifest after the first ship. 0 until then." },
+        "prod_story_id": { "type": "integer", "minimum": 0, "description": "Git-owned; written by ./scripts/storyline advance from the manifest after the first ship. 0 until then." },
         "live_since": { "$ref": "#/$defs/utc_or_empty" },
-        "rev": { "type": "integer", "minimum": 0, "description": "Bumped only by ./scripts/sdlc and ./scripts/kit; a PR that changes a row sets it to main's rev + 1 (sdlc.yml rejects any other value)." }
+        "rev": { "type": "integer", "minimum": 0, "description": "Bumped only by ./scripts/storyline and ./scripts/kit; a PR that changes a row sets it to main's rev + 1 (storyline.yml rejects any other value)." }
       },
       "allOf": [
         { "if": { "properties": { "phase": { "const": "intake" } } },   "then": { "properties": { "status": { "enum": ["active", "awaiting_gate", "blocked"] } } } },

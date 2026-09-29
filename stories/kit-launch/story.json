@@ -1,0 +1,58 @@
+{
+  "name": "[KIT] 00 · Launch Storyworks",
+  "description": "SKELETON — NOT A REAL EXPORT. This file is a placeholder for [KIT] 00 · Launch Storyworks. It carries the story's name, the canvas Note and the top-level shape of an export, and NO actions: the real content is action by action in stories/kit-launch/sections/*.md and pages/*.md (about 340 actions in six Sections; index in DESIGN.md, Appendix C). The story is never hand-written. The §15.6 maintainer release builds it through Mode 2 with build-prompts.md (P-K1 to P-K14, each ending with Validate) in a maintainer dev team, exports the template copy with GET /api/v1/stories/{id}/export?randomize_urls=true&clear_recipients=true, normalises and lints it, and replaces this file entirely. Until then the release check (./scripts/storyline check --release, kit.yml job release) fails on this label, and nothing may import this file: the kit is imported only from the release. Every top-level key and value below is a placeholder copied from the scaffold's skeletons (schema and runtime versions, GUIDs, icon); the real export decides them (scaffold VERIFY #8). Mode badge: none.",
+  "guid": "00000000000000000000000000000000",
+  "slug": "kit_00_launch_storyworks",
+  "schema_version": 30,
+  "standard_lib_version": 96,
+  "action_runtime_version": 88,
+  "keep_events_for": 2592000,
+  "monitor_failures": true,
+  "recipients": [],
+  "send_to_story_enabled": false,
+  "send_to_story_access": null,
+  "send_to_story_access_source": null,
+  "send_to_story_timeout_enabled": false,
+  "send_to_story_timeout_duration_seconds": null,
+  "send_to_story_skill_use_requires_confirmation": false,
+  "parent_only_send_to_story": false,
+  "synchronous_webhooks_enabled": false,
+  "entry_agent_guid": null,
+  "exit_agent_guids": [],
+  "api_entry_action_guids": [],
+  "api_exit_action_guids": [],
+  "send_to_stories": [],
+  "sections": [],
+  "pages": [],
+  "app_endpoints": null,
+  "integrations": [],
+  "tags": [
+    "stories-as-code",
+    "kit",
+    "skeleton"
+  ],
+  "icon": ":factory:",
+  "reporting_status": true,
+  "time_saved_unit": "minutes",
+  "time_saved_value": 0,
+  "integration_product": null,
+  "integration_vendor": null,
+  "origin_story_identifier": "cloud:<tenant-guid>:<story-guid>",
+  "llm_product_instructions": "",
+  "start_reference": null,
+  "story_library_metadata": {},
+  "diagram_notes": [
+    {
+      "content": "**[KIT] 00 · Launch Storyworks** — Mode badge: **none** (no MCP surface; the AI Agent actions are tool-less, except the one-tool provider probe, which is a check and not a runtime tool path).\n\n**Purpose.** Provision the Storyworks from one kickoff Page (section A, with the provider probe in F); mirror the tracker from git into Records (B); let people add use cases and decide the Tines-side gates G0, G6, G7, GX and unpark (C); run the tool-less brief_writer, planner and retro_writer on state changes, behind a kill switch and daily caps (D); and let the repository pull Tines-side changes as tracker PRs (E).\n\n**Entry points.** A: the root Page kickoff (+ dev-only Webhook kickoff_test) · B: Webhook tracker_sync_in (Secret) · C: the root Page tracker_home + three App endpoint Webhooks (app_add_use_case, app_gate_decision, app_costs) · D: the schedule dispatch_sweep (*/15, watchdog 1800 s) + dev-only Webhook specialist_test · E: the response-enabled Webhook tracker_outbox (Secret).\n\n**Outputs.** A private repository with the tenant config and setup-report commits; Skills, three Record types, the kit Resources, tracker Records; a Dashboard and an App when entitled; proposals for people. Never writes to GitHub after day 1. Credentials by name: tines_api_kit, github_factory (section A only), tines_api_readonly, slack_bot (optional).\n\n**Design:** stories/kit-launch/DESIGN.md and sections/*.md.",
+      "position": [
+        0,
+        -600
+      ],
+      "guid": "00000000000000000000000000000000",
+      "width": 640
+    }
+  ],
+  "agents": [],
+  "links": [],
+  "diagram_layout": "{}"
+}

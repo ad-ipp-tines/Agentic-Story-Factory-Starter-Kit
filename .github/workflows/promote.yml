@@ -223,9 +223,9 @@ jobs:
               || echo "::warning title=promote::the ops router notification failed (the promotion itself is unaffected)"
           fi
 
-  # ---- G5 evidence (REPO-DESIGN.md §3.3 row 20, §4.4 05 ship, sdlc/gates/G5-change-request-approval.md) ---------------
+  # ---- G5 evidence (REPO-DESIGN.md §3.3 row 20, §4.4 05 ship, storyline/gates/G5-change-request-approval.md) ---------------
   # The final step: with the prod Viewer key (TINES_API_KEY_PROD_READ, environment prod-read) read the change request
-  # through `./scripts/tines cr-view` and write sdlc/work/<slug>/ship.md + one gate_decision event, through a PR.
+  # through `./scripts/tines cr-view` and write storyline/work/<slug>/ship.md + one gate_decision event, through a PR.
   #   after a promotion here                  → G5b approved_and_pushed
   #   dispatched with evidence_only           → the decision an approver made in Tines, and only with proof (FAILS CLOSED):
   #                                             approved_and_pushed only when cr-view shows the request APPROVED or pushed,
@@ -300,7 +300,7 @@ jobs:
               fail("change_request_id and draft_id must be plain ids")
           if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
               fail(f"release_sha {sha!r} is not a commit sha")
-          approvers = yaml.safe_load(pathlib.Path("sdlc/gates/approvers.yaml").read_text(encoding="utf-8")) or {}
+          approvers = yaml.safe_load(pathlib.Path("storyline/gates/approvers.yaml").read_text(encoding="utf-8")) or {}
 
           def role(gate):
               teams = (approvers.get("gates") or {}).get(gate, {}).get("teams") or []
@@ -309,7 +309,7 @@ jobs:
 
           prod_id = int(((entry.get("prod") or {}).get("story_id")) or 0)
           now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-          common = ["python3", "scripts/sdlc_state.py", "ship-evidence", slug, "--sha", sha, "--workflow", "promote.yml",
+          common = ["python3", "scripts/storyline_state.py", "ship-evidence", slug, "--sha", sha, "--workflow", "promote.yml",
                     "--workflow-run", os.environ["RUN_ID"], "--decided-at", now, "--prod-story-id", str(prod_id)]
           if prod_id == 0 and entry.get("new"):
               if not (evidence_only and note):
@@ -386,7 +386,7 @@ jobs:
               fh.write(f"count={count}\n")
           PY
           # only the evidence files (touch set scripts.ship-evidence): ship.md and events.jsonl per story
-          git status --porcelain -uall -- 'sdlc/work/*/ship.md' 'sdlc/work/*/events.jsonl' | awk '{print $NF}' > "$RUNNER_TEMP/g5-files.txt"
+          git status --porcelain -uall -- 'storyline/work/*/ship.md' 'storyline/work/*/events.jsonl' | awk '{print $NF}' > "$RUNNER_TEMP/g5-files.txt"
           tar -czf "$RUNNER_TEMP/g5-evidence.tgz" --files-from "$RUNNER_TEMP/g5-files.txt"
 
       - name: Hand the evidence to the PR job
@@ -397,9 +397,9 @@ jobs:
           path: ${{ runner.temp }}/g5-evidence.tgz
           retention-days: 3
 
-  # One PR on tracker/ship-<slug>-<sha7> (touch set `tracker`), opened with the tracker-bot GitHub App token so sdlc.yml
-  # runs on it; it needs an approving review from the G5 team in sdlc/gates/approvers.yaml. After it merges,
-  # `./scripts/sdlc advance <slug>` reads ship.md on main (operate, or build with a revert on a rejection).
+  # One PR on tracker/ship-<slug>-<sha7> (touch set `tracker`), opened with the tracker-bot GitHub App token so storyline.yml
+  # runs on it; it needs an approving review from the G5 team in storyline/gates/approvers.yaml. After it merges,
+  # `./scripts/storyline advance <slug>` reads ship.md on main (operate, or build with a revert on a rejection).
   g5-evidence-pr:
     name: G5 evidence (tracker/ship-<slug>-<sha7> PR, tracker-bot token)
     needs: g5-evidence
@@ -431,17 +431,17 @@ jobs:
         run: |
           set -euo pipefail
           tar -xzf "$RUNNER_TEMP/g5/g5-evidence.tgz"
-          sha=$(sed -n 's/^sha: *"\{0,1\}\([0-9a-f]*\)"\{0,1\}$/\1/p' "sdlc/work/${SLUG}/ship.md" | head -n1)
-          gate=$(sed -n 's/^gate: *//p' "sdlc/work/${SLUG}/ship.md" | head -n1)
-          decision=$(sed -n 's/^decision: *//p' "sdlc/work/${SLUG}/ship.md" | head -n1)
+          sha=$(sed -n 's/^sha: *"\{0,1\}\([0-9a-f]*\)"\{0,1\}$/\1/p' "storyline/work/${SLUG}/ship.md" | head -n1)
+          gate=$(sed -n 's/^gate: *//p' "storyline/work/${SLUG}/ship.md" | head -n1)
+          decision=$(sed -n 's/^decision: *//p' "storyline/work/${SLUG}/ship.md" | head -n1)
           branch="tracker/ship-${SLUG}-${sha:0:7}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch --quiet -c "$branch"
-          git add -- "sdlc/work/${SLUG}/ship.md" "sdlc/work/${SLUG}/events.jsonl"
+          git add -- "storyline/work/${SLUG}/ship.md" "storyline/work/${SLUG}/events.jsonl"
           git commit --quiet -m "ship(${SLUG}): G5 evidence ${gate} ${decision} (${sha:0:7})"
           git push --quiet --force "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
-          body="G5 evidence for \`${SLUG}\`: **${gate} ${decision}**, written by promote.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (REPO-DESIGN.md §3.3 row 20). It needs an approving review from the ${gate} team in \`sdlc/gates/approvers.yaml\`. After it merges, \`./scripts/sdlc advance ${SLUG}\` reads \`sdlc/work/${SLUG}/ship.md\` on main."
+          body="G5 evidence for \`${SLUG}\`: **${gate} ${decision}**, written by promote.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (REPO-DESIGN.md §3.3 row 20). It needs an approving review from the ${gate} team in \`storyline/gates/approvers.yaml\`. After it merges, \`./scripts/storyline advance ${SLUG}\` reads \`storyline/work/${SLUG}/ship.md\` on main."
           if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' < /dev/null | grep -q .; then
             gh pr create --base main --head "$branch" --title "ship(${SLUG}): G5 evidence ${gate} ${decision}" --body "$body" < /dev/null
           fi

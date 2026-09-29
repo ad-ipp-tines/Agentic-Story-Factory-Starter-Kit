@@ -34,7 +34,7 @@ environments:
     recipients: ["${OPS_ROUTER_URL}", "${OPS_EMAIL_DL}"]
     locked_slugs: [ops-error-router, ops-story-health-monitor, ops-tools-server,
                    ops-get-error-logs, ops-get-story-export, ops-get-live-activity, ops-get-recent-runs, ops-get-ai-usage,
-                   ops-apply-alert-rule, ops-request-approval, kit-factory]
+                   ops-apply-alert-rule, ops-request-approval, kit-launch]
   # staging:                                    # optional third environment, same shape as prod
   #   team_id: 0
   #   folder_id: 0
@@ -111,11 +111,11 @@ stories:
     tier: ops
     owner: ops
     new: true
-  # [KIT] 00 · Run the story factory (stories/kit-factory/; REPO-DESIGN.md §3.3 row 12, §7.1). NEVER `new: true`: the
+  # [KIT] 00 · Launch Storyworks (stories/kit-launch/; REPO-DESIGN.md §3.3 row 12, §7.1). NEVER `new: true`: the
   # kit is imported BY HAND into the prod team (which is the ops team), and the setup-report PR (kit.yml →
   # ./scripts/kit apply-config) commits its live id into prod.story_id, so ship.yml changes that copy through
   # versionReplace instead of creating a second [KIT] 00. The dev id is recorded by hand when the dev copy exists.
-  kit-factory:
+  kit-launch:
     dev:  { story_id: 0 }
     prod: { story_id: 0 }
     tier: ops

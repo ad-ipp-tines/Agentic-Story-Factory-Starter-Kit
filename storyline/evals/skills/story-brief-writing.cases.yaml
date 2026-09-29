@@ -1,0 +1,131 @@
+# storyline/evals/skills/story-brief-writing.cases.yaml — HELD-OUT cases for the Tines Agent Skill `story-brief-writing`.
+#
+# Spec: REPO-DESIGN.md §15.2, P24. The skill is attached [BY HAND] to the `brief_writer` AI Agent action of
+# kit-launch, so its cases run through that action in the DEV copy of kit-launch, via the D10 `specialist_test`
+# Webhook:
+#
+#   ./scripts/storyline eval-run kit-launch --cases storyline/evals/skills/story-brief-writing.cases.yaml --entry-action specialist_test
+#
+# These test the skill's METHOD (field by field, the ladder, sensitivity, catalog matching); the guard rails are in
+# storyline/evals/agents/runtime-brief-writer.cases.yaml. Push a changed skill to dev first. FORMAT, the D10 body and
+# grading: the header of storyline/evals/agents/runtime-planner.cases.yaml.
+
+version: 1
+skill: story-brief-writing
+runs_via:
+  story: kit-launch
+  action: brief_writer
+  entry_action: specialist_test
+  command: "./scripts/storyline eval-run kit-launch --cases storyline/evals/skills/story-brief-writing.cases.yaml --entry-action specialist_test"
+defaults:
+  k: 3
+
+x-catalog: &catalog
+  - { id: 87626, name: "Analyze an IP in many services at once" }
+  - { id: 1231438, name: "Monitor action failures in Tines and notify via Slack" }
+  - { id: 1253511, name: "Manage long-running jobs and check job status in Workbench" }
+  - { id: 1252707, name: "Schedule a story" }
+
+x-entitled: &entitled { records: true, apps: false, ai_agent_action: true, cases: false, change_control: true, tunnel: false }
+
+variants:
+  callable-block:
+    event:
+      agent: brief_writer
+      context:
+        story_key: eval-sbw-dept
+        owner_role: platform
+        prefix: PLT
+        use_case: "Several stories need a person's department from the directory. Build one block they can all call with a user id; it returns the department and the manager role."
+        entitlements: *entitled
+        catalog: *catalog
+  monitoring-failures:
+    event:
+      agent: brief_writer
+      context:
+        story_key: eval-sbw-monitor
+        owner_role: ops
+        prefix: OPS
+        use_case: "When any action in our stories fails, the ops channel should hear about it once, with the story and the action named."
+        entitlements: *entitled
+        catalog: *catalog
+  vague-volume:
+    event:
+      agent: brief_writer
+      context:
+        story_key: eval-sbw-report
+        owner_role: platform
+        prefix: PLT
+        use_case: "Every Monday morning, collect last week's failed runs across stories into one summary for the platform team."
+        entitlements: *entitled
+        catalog: *catalog
+  staff-data:
+    event:
+      agent: brief_writer
+      context:
+        story_key: eval-sbw-offboard
+        owner_role: platform
+        prefix: PLT
+        use_case: "When HR marks a leaver, list the accounts the person holds in three systems and send the list to their manager for review."
+        entitlements: *entitled
+        catalog: *catalog
+
+cases:
+  - id: brief-callable-block-is-a-sub-story
+    suite: capability
+    kind: model_graded
+    held_out: true
+    input_ref: "storyline/evals/skills/story-brief-writing.cases.yaml#variants.callable-block"
+    should_trigger: true
+    expect: { must_fire: [brief_writer, brief_ok] }
+    output_checks:
+      - { path: suggested_title, matches: "^\\[PLT\\] NN · .+ \\(sub\\)$" }
+      - { path: trigger_or_entry.type, equals: send_to_story }
+      - { path: simplest_rung.rung, in: [1, 2] }
+      - { path: data_sensitivity, in: [confidential, regulated] }
+    k: 3
+
+  - id: brief-matches-the-catalog-on-purpose
+    suite: capability
+    kind: model_graded
+    held_out: true
+    input_ref: "storyline/evals/skills/story-brief-writing.cases.yaml#variants.monitoring-failures"
+    should_trigger: true
+    expect: { must_fire: [brief_writer, brief_ok] }
+    output_checks:
+      - { path: "candidate_seed_ids[*]", contains: 1231438 }
+      - { path: "candidate_seed_ids[*]", not_contains: 87626 }
+    k: 3
+
+  - id: brief-schedule-entry-and-unknown-volume
+    suite: capability
+    kind: model_graded
+    held_out: true
+    input_ref: "storyline/evals/skills/story-brief-writing.cases.yaml#variants.vague-volume"
+    should_trigger: true
+    expect: { must_fire: [brief_writer, brief_ok] }
+    output_checks:
+      - { path: trigger_or_entry.type, equals: schedule }
+      - { path: simplest_rung.rung, in: [1, 2] }
+    rubric: >-
+      Pass only if the volume is stated as one run a week (it is implied by "every Monday") rather than invented as a
+      number of failed runs, the success metric is measurable, and no AI rung is chosen for a collection and summary
+      that a template can do — or, if an AI rung is chosen, why_not_lower explains why a template cannot summarise.
+    reference_output:
+      trigger_or_entry: { type: schedule, detail: "weekly, Monday morning" }
+      volume_estimate: "one run a week"
+      simplest_rung: { rung: 1, why: "Listing last week's failed runs and formatting them is a fixed lookup and a template." }
+    k: 3
+
+  - id: brief-staff-data-is-confidential
+    suite: capability
+    kind: model_graded
+    held_out: true
+    input_ref: "storyline/evals/skills/story-brief-writing.cases.yaml#variants.staff-data"
+    should_trigger: true
+    expect: { must_fire: [brief_writer, brief_ok] }
+    output_checks:
+      - { path: data_sensitivity, in: [confidential, regulated] }
+      - { path: "human_touchpoints", min_items: 1 }
+      - { path: "open_questions", min_items: 1 }
+    k: 3

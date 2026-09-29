@@ -12,7 +12,7 @@
 # lint_story.py, normalize.jq, tines_common.SECRET_PATTERNS, push_skills.py and diff_story.py, so a PR cannot neuter
 # the lint or the secret scan that judge it. The PR's own files — including its scripts/ — are the DATA (gitleaks still
 # scans the whole PR tree). The checkout persists no credential; the one write is the comment, through github-script.
-# sdlc.yml's guard holds a PR that changes this file or scripts/** until a security-platform review, because on
+# storyline.yml's guard holds a PR that changes this file or scripts/** until a security-platform review, because on
 # pull_request the caller's local `uses:` runs the PR's own copy of this workflow.
 #
 # Supply chain: nothing here downloads and runs an unpinned package (the Agent Skills validator step is removed until
@@ -22,11 +22,11 @@
 
 name: lint
 
-# Triggers (REPO-DESIGN.md §3.3 row 18): no `pull_request` trigger of its own. sdlc.yml — the one required check, with
+# Triggers (REPO-DESIGN.md §3.3 row 18): no `pull_request` trigger of its own. storyline.yml — the one required check, with
 # no paths filter — calls this workflow (workflow_call) on a pull request whose changes match the path list below,
 # so lint runs once per PR and never leaves a required check Pending on a tracker or kit PR. The list is the one the
-# `pull_request` trigger carried, unchanged; sdlc.yml reads it from between the two markers, so keep it here.
-# sdlc-call-paths begin
+# `pull_request` trigger carried, unchanged; storyline.yml reads it from between the two markers, so keep it here.
+# storyline-call-paths begin
 #   - "stories/**"
 #   - "tines-skills/**"
 #   - "policies/**"
@@ -34,8 +34,8 @@ name: lint
 #   - "scripts/**"
 #   - "AGENTS.md"
 #   - ".github/workflows/lint.yml"
-# sdlc-call-paths end
-# Called from sdlc.yml, `github.event_name` is still `pull_request` (a called workflow sees the caller's event), so the
+# storyline-call-paths end
+# Called from storyline.yml, `github.event_name` is still `pull_request` (a called workflow sees the caller's event), so the
 # PR-only steps below behave as before.
 on:
   workflow_call:
@@ -270,7 +270,7 @@ jobs:
           print(f"shared block {skill_id} matches AGENTS.md ({h(skill_block)[:12]})")
           PY
 
-      - name: Secret patterns (the block-secrets.sh list) over stories, skills, policies, sdlc/, kit/, .claude/, .cursor/ and scripts/
+      - name: Secret patterns (the block-secrets.sh list) over stories, skills, policies, storyline/, kit/, .claude/, .cursor/ and scripts/
         run: |
           python3 - <<'PY'
           import os, pathlib, subprocess, sys
@@ -282,7 +282,7 @@ jobs:
           # land (tracker-fold, apply) and the agent and editor configuration. Only the files that list the patterns
           # themselves are skipped; gitleaks (next step) covers the whole tree with entropy-based rules.
           files = subprocess.run(["git", "ls-files", "stories", "tines-skills", "policies", ".github", "docs", "terraform", "README.md", "AGENTS.md",
-                                  "sdlc", "kit", ".claude", ".cursor", "scripts"],
+                                  "storyline", "kit", ".claude", ".cursor", "scripts"],
                                  capture_output=True, text=True, check=True).stdout.split()
           skip = {"policies/lint-rules.yml", "scripts/tines_common.py", ".claude/hooks/block-secrets.sh"}   # the pattern lists
           bad = 0

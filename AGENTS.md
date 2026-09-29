@@ -8,7 +8,7 @@ Loaded every session by Cursor (natively) and by Claude Code (imported from `CLA
 - The **dev team** is where builds happen. Production is never edited directly; it is reached only through `ship.yml` (import → named draft → change request → a named person approving in Tines).
 - `stories/_manifest.yaml` maps slugs to story ids per environment and holds no secrets. `stories/<slug>/story.meta.yaml` carries what the export does not: credentials and resources by name, monitoring, AI agents, budget references.
 - Model Context Protocol (MCP) is the wire between the editor and the tenant. Tines Stories is the product; Tines Classic and Tines Stories mean the same thing here.
-- `sdlc/` is the lifecycle every story follows; `kit/tracker/backlog.yaml` holds each story's phase; `./scripts/sdlc` is the only writer of lifecycle state.
+- `storyline/` is the lifecycle every story follows; `kit/tracker/backlog.yaml` holds each story's phase; `./scripts/storyline` is the only writer of lifecycle state.
 
 ## 2. The four modes (the only words we use for the MCP surfaces)
 
@@ -78,7 +78,7 @@ Export key names for these options are **VERIFY** until one real export has been
 - Know which provider each agent uses. A custom provider bypasses Tines AI credits but still bills externally (`billed_cost`).
 - Write `meta.credits_used`, tokens and model to the `ops_findings` Record on every agent run.
 - The build loop (Mode 2) runs on the editor's plan; no Tines AI credits are listed for the Tines Stories MCP server (whether its research and listing helpers consume credits is VERIFY). Workbench for Storyboard is the credit-spending alternative and is chosen deliberately, not by default.
-- Tines alerts at 80 % and 100 % by default; the stops are the per-action Disable-action token alert and the kit's sdlc_limits caps and kill switch.
+- Tines alerts at 80 % and 100 % by default; the stops are the per-action Disable-action token alert and the kit's storyline_limits caps and kill switch.
 
 ## 9. Ownership and never-touch
 
@@ -98,14 +98,14 @@ Export key names for these options are **VERIFY** until one real export has been
 | `/tines-ship <slug> [dev\|prod]` | Version → import as draft → recipients → change request. Never promotes |
 | `/tines-rollback <slug> <sha\|previous>` | Revert PR + the workflow to run; never the break-glass path |
 | `/tines-skills-push <name> [--dev]` | Validate + dry-run the Skills API upsert; push to dev for a live test |
-| `/sdlc <slug>` | The lifecycle orchestrator (`status`, `next` or `run`): runs only the specialists `./scripts/sdlc next` names; stops at every human gate |
-| `/sdlc-gate <slug> <gate> <decision>` | **Human only.** Records a repo-side gate decision (G3; G0, G6, G7, GB and GX on the Community path only) |
+| `/storyline <slug>` | The lifecycle showrunner (`status`, `next` or `run`): runs only the crew `./scripts/storyline next` names; stops at every human gate |
+| `/storyline-gate <slug> <gate> <decision>` | **Human only.** Records a repo-side gate decision (G3; G0, G6, G7, GB and GX on the Community path only) |
 | `./scripts/tines <subcommand>` | Everything the Tines API does, one audited code path; never compose raw `curl` |
-| `./scripts/sdlc <subcommand>` | The only writer of lifecycle state: `status`, `next`, `ready`, `estimate`, `check` read; `start`, `intake`, `apply`, `advance`, `eval-run`, `gate` write and ask first |
+| `./scripts/storyline <subcommand>` | The only writer of lifecycle state: `status`, `next`, `ready`, `estimate`, `check` read; `start`, `intake`, `apply`, `advance`, `eval-run`, `gate` write and ask first |
 
 ## 11. Read next
 
-- `sdlc/README.md` before starting a new story: its phases, gates and commands, and who decides each gate.
+- `storyline/README.md` before starting a new story: its phases, gates and commands, and who decides each gate.
 - `docs/01-decision-rules.md` before choosing an agent or MCP for anything: HTTP Request or template → Send to Story → AI Agent action with Tines tools → Mode 3 with an MCP connection → Mode 4. Never MCP for bulk data movement, sub-second latency or a destructive action without an approval path.
 - `policies/POLICY.md` before shipping.
 - `.claude/skills/tines-build-story/references/story-conventions.md` for the long-form conventions (locks, safe-disable order, size limits).

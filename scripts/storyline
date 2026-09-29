@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# scripts/storyline — the Storyline dispatcher, and the ONLY writer of lifecycle state
+# (REPO-DESIGN.md §6.1). Subcommands map onto the storyline_*.py modules in this directory.
+#
+# Permission rules in .claude/settings.json are per subcommand prefix (§3.3 row 6), so keep the names stable:
+#   allow: status · next · ready · check · estimate
+#   ask:   start · intake · apply · advance · eval-run · gate
+# The model's Write and Edit tools are denied on .storyline/**, storyline/work/** and kit/tracker/**: every lifecycle write goes
+# through this script, which checks schemas and touch sets and appends one event per write.
+#
+# Environment: none of its own. eval-run and estimate's comparables read TINES_TENANT / TINES_API_KEY (the dev-team
+# key) and refuse TINES_ENV=prod. Python 3.9+ with PyYAML (scripts/requirements.txt).
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+py="${PYTHON:-python3}"
+export PYTHONDONTWRITEBYTECODE=1   # no scripts/__pycache__ in the working tree (§3.5)
+
+usage() {
+  cat >&2 <<'EOF'
+usage: ./scripts/storyline <subcommand> [args]
+
+  read-only (allow)
+  status <slug> [--json]                     phase, status, open gate, attempt, last event, evidence, what main shows
+  next <slug> [--print-prompt]               what runs next: crew, a gate, a check or a script (§6.1)
+  ready <slug>                               G1 readiness + GB (budget, WIP); exit 0/1 with JSON reasons
+  estimate <slug> [--check]                  runs/day × credits/run × 30 (+ the eval-run cost); --check = cost.4–cost.9
+  check [--all] [--strict] [--release] [NAME ...] [--snapshot FILE]
+                                             the contract-checker registry, one PASS/FAIL line each
+  check --pr --base SHA --branch NAME [--pr-json FILE]
+                                             the pull-request checks storyline.yml runs
+
+  lifecycle writes (ask)
+  start <slug>                               .storyline/active; storyline/work/<slug>/; the build start event in build
+  intake "<title>" --use-case <file> --owner <role> [--seed <id>]
+                                             a new tracker row in intake (branch tracker/intake-<slug>)
+  apply <slug> <agent|verify-merge> <out.json|->
+                                             apply a crew member's output baton (stdin with -), or merge the verdicts
+  advance <slug> [--trigger T] [--note N]    apply the transition whose check or gate evidence is present
+  eval-run <slug> [--k 3] [--dry-run]        run the eval cases against the DEV story (never prod)
+  gate <slug> <gate> <decision> --by <role> [--note N]
+                                             a repo-side human decision (G3; G0 G6 G7 GB GX on the Community path
+                                             only); confirms on /dev/tty — run through /storyline-gate or in a terminal
+EOF
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+cmd="$1"; shift
+
+case "$cmd" in
+  status|next|start|intake|advance|gate)
+                  exec "$py" "$here/storyline_state.py" "$cmd" "$@" ;;
+  apply)          exec "$py" "$here/storyline_apply.py" "$@" ;;
+  ready)          exec "$py" "$here/storyline_ready.py" "$@" ;;
+  estimate)       exec "$py" "$here/storyline_estimate.py" "$@" ;;
+  eval-run)       exec "$py" "$here/storyline_eval.py" "$@" ;;
+  check)          exec "$py" "$here/storyline_checks.py" "$@" ;;
+  -h|--help|help) usage ;;
+  *)              echo "storyline: unknown subcommand '$cmd'" >&2; usage ;;
+esac

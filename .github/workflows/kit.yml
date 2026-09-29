@@ -6,10 +6,10 @@
 #                  ./scripts/kit bundle --check              fail if kit/bundle/kit-bundle.json or a generated
 #                                                            kit/resources/*.example.json differs from its sources
 #                The bundle depends on more than any short path list: its `generated_from` (tines-skills/*/SKILL.md,
-#                kit/records/, kit/catalog/, kit/tracker/milestones.yaml, sdlc/lifecycle/state-machine.yaml,
+#                kit/records/, kit/catalog/, kit/tracker/milestones.yaml, storyline/lifecycle/state-machine.yaml,
 #                policies/cost-ceilings.yml, stories/ops-story-health-monitor/resources/*.example.json, the dashboard
 #                and the App) and, in the template repository (no kit/tenant/config.yaml yet), the file manifest — so
-#                adding or removing ANY file makes it stale. sdlc.yml's bundle_fresh enforces the same thing as the
+#                adding or removing ANY file makes it stale. storyline.yml's bundle_fresh enforces the same thing as the
 #                required check. Regenerate with ./scripts/kit bundle in the same PR. No secrets, no network.
 # apply-config   on a push to main touching kit/tenant/config.yaml or kit/tenant/setup-report.json — the two files
 #                [KIT] 00 commits on day 1 (A16, A29) — and on dispatch (run it once by hand after provisioning if
@@ -17,18 +17,18 @@
 #                  ./scripts/kit apply-config --targets manifest,never-touch,ceilings   → PR from kit/config-<run_id>
 #                  ./scripts/kit apply-config --targets tracker                         → PR from tracker/config-<run_id>
 #                The first is the setup-report PR: it commits kit_story_id into stories/_manifest.yaml
-#                (kit-factory.prod.story_id) and policies/never-touch.yml (story_ids), so ship.yml changes the imported
+#                (kit-launch.prod.story_id) and policies/never-touch.yml (story_ids), so ship.yml changes the imported
 #                kit through versionReplace and guard-mcp.sh protects it by id. It also re-runs ./scripts/kit bundle,
 #                because the bundle's kit_config value follows kit/tenant/config.yaml (committed straight to main by
 #                A16): MERGE IT FIRST, or bundle_fresh fails on every other PR until it lands. The tracker PR is separate
 #                because the touch sets allow kit/tracker/** only on tracker/* branches. apply-config fills
 #                placeholders only.
 #                Both PRs are opened with the tracker-bot GitHub App token, never GITHUB_TOKEN (GitHub starts no
-#                pull_request workflows for a PR opened with it, so sdlc.yml would never report).
+#                pull_request workflows for a PR opened with it, so storyline.yml would never report).
 # release        on dispatch only (job = release) — the §15.6 maintainer release check, run before is_template is set:
 #                  ./scripts/kit bundle --check
-#                  ./scripts/sdlc check --release            fails while stories/kit-factory/story.json or
-#                                                            kit/dashboard/dashboards/story-factory.dashboard.json still
+#                  ./scripts/storyline check --release            fails while stories/kit-launch/story.json or
+#                                                            kit/dashboard/dashboards/storyworks.dashboard.json still
 #                                                            carries the SKELETON label, or template_hygiene fails
 #
 # Secrets (GitHub environment `tracker`): TRACKER_BOT_APP_ID, TRACKER_BOT_PRIVATE_KEY — the apply-config job only.
@@ -174,7 +174,7 @@ jobs:
                   "stories/_manifest.yaml policies/never-touch.yml policies/cost-ceilings.yml kit/bundle kit/resources" \
                   "kit: apply the tenant config and the setup report" "kit-config"
           open_pr "tracker/config-${GITHUB_RUN_ID}" "tracker" \
-                  "kit/tracker sdlc/work" \
+                  "kit/tracker storyline/work" \
                   "tracker: dates and providers from the tenant config" "tracker"
 
   release:
@@ -192,13 +192,13 @@ jobs:
       - run: python -m pip install --quiet -r scripts/requirements.txt
       - name: The bundle is fresh
         run: ./scripts/kit bundle --check
-      - name: No SKELETON left, template hygiene (./scripts/sdlc check --release)
+      - name: No SKELETON left, template hygiene (./scripts/storyline check --release)
         run: |
-          if [ ! -x scripts/sdlc ]; then
-            echo "::error::scripts/sdlc is missing; the release check cannot run"
+          if [ ! -x scripts/storyline ]; then
+            echo "::error::scripts/storyline is missing; the release check cannot run"
             exit 1
           fi
-          ./scripts/sdlc check --release
+          ./scripts/storyline check --release
       - name: Summary
         if: success()
         run: |

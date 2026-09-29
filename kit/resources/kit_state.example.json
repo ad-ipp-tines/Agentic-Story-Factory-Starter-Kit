@@ -1,7 +1,7 @@
 {
   "app_id": 0,
   "dashboard_id": 0,
-  "fields_sdlc_backlog": {
+  "fields_storyline_backlog": {
     "acked_seq": 0,
     "attempt": 0,
     "brief": 0,
@@ -35,7 +35,7 @@
     "title": 0,
     "use_case": 0
   },
-  "fields_sdlc_events": {
+  "fields_storyline_events": {
     "actor": 0,
     "actor_kind": 0,
     "actor_ref": 0,
@@ -55,7 +55,7 @@
     "to_phase": 0,
     "tracker_rev": 0
   },
-  "fields_sdlc_milestones": {
+  "fields_storyline_milestones": {
     "criteria": 0,
     "due_date": 0,
     "evidence_ref": 0,
@@ -68,8 +68,8 @@
   },
   "hash_kit_catalog": "",
   "hash_kit_config": "",
-  "hash_sdlc_limits": "",
-  "hash_sdlc_state_machine": "",
+  "hash_storyline_limits": "",
+  "hash_storyline_state_machine": "",
   "planner_last_run": "",
   "records_seeded": "<run-guid>",
   "repo": "<org>/<repo>",
@@ -80,13 +80,13 @@
   "res_ops_lock": 0,
   "res_ops_responders": 0,
   "res_ops_routing": 0,
-  "res_sdlc_approvers": 0,
-  "res_sdlc_limits": 0,
-  "res_sdlc_state_machine": 0,
-  "res_sdlc_sync_lock": 0,
-  "rt_sdlc_backlog": 0,
-  "rt_sdlc_events": 0,
-  "rt_sdlc_milestones": 0,
+  "res_storyline_approvers": 0,
+  "res_storyline_limits": 0,
+  "res_storyline_state_machine": 0,
+  "res_storyline_sync_lock": 0,
+  "rt_storyline_backlog": 0,
+  "rt_storyline_events": 0,
+  "rt_storyline_milestones": 0,
   "run_guid": "<run-guid>",
   "self_id": 0,
   "status": "complete",

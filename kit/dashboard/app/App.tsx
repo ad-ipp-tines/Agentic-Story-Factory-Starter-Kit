@@ -1,13 +1,13 @@
 /**
- * App.tsx — the entry file of the "Story factory" App (the name of this file cannot change).
+ * App.tsx — the entry file of the "Storyworks" App (the name of this file cannot change).
  *
  * REPO-DESIGN.md §9.1–§9.2. Created by [KIT] 00 A24 (POST /api/v1/apps, then PUT /api/v1/apps/{id}/files with
  * kit/bundle/kit-bundle.json app_files — every draft file is replaced, and App.tsx must be present). Publishing the
  * App and wiring its three endpoints are [BY HAND] (Interfaces → App endpoints), or publishing through Mode 2,
  * whose App tools the MCP docs page does not list yet (VERIFY K18).
  *
- * What it is: the working surface over the tracker for tenants with Records + Apps. It reads sdlc_backlog,
- * sdlc_events and sdlc_milestones and the sdlc_state_machine, kit_catalog and kit_config Resources directly, as the
+ * What it is: the working surface over the tracker for tenants with Records + Apps. It reads storyline_backlog,
+ * storyline_events and storyline_milestones and the storyline_state_machine, kit_catalog and kit_config Resources directly, as the
  * viewer (read-only hooks, lib/tracker.ts). It never writes a Record, runs on no schedule, shows nothing the viewer
  * may not read, and notifies nobody — the kit story does the notifying. Gate decisions deep-link to the tracker Page
  * until K18 confirms that an app endpoint receives the viewer's identity.
@@ -38,7 +38,7 @@ function Nav() {
   const active = (routePath: string) =>
     routePath === "/" ? path === "/" || path === "" || path.startsWith("/story/") : path.startsWith(routePath);
   return (
-    <nav aria-label="Story factory" className="flex gap-1">
+    <nav aria-label="Storyworks" className="flex gap-1">
       {ROUTES.filter((r) => r.inNav).map((r) => (
         <a
           key={r.path}
@@ -59,7 +59,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-white text-slate-900">
       <header className="flex flex-wrap items-center gap-4 border-b border-slate-200 px-4 py-3">
-        <h1 className="text-base font-semibold">Story factory</h1>
+        <h1 className="text-base font-semibold">Storyworks</h1>
         <Nav />
       </header>
       <main className="px-4 py-4">

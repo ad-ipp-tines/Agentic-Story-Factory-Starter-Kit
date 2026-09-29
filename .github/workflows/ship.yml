@@ -304,21 +304,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # ---- G5 evidence (REPO-DESIGN.md §3.3 row 20, §4.4 05 ship, sdlc/gates/G5-change-request-approval.md) ---------------
+  # ---- G5 evidence (REPO-DESIGN.md §3.3 row 20, §4.4 05 ship, storyline/gates/G5-change-request-approval.md) ---------------
   # G5 evidence is computed in CI, never in the editor (the IDE key is dev-only; the scripts refuse prod outside CI).
   # With the prod Viewer key (TINES_API_KEY_PROD_READ, environment prod-read) this job reads what the production job did
-  # and writes sdlc/work/<slug>/ship.md + one event per story through `python3 scripts/sdlc_state.py ship-evidence`:
+  # and writes storyline/work/<slug>/ship.md + one event per story through `python3 scripts/storyline_state.py ship-evidence`:
   #   first ship (mode: new)  → G5a approved_and_imported — the `production` environment's required reviewer released
   #                             the import (change control on the new story is switched on [BY HAND]). The approval is
   #                             READ, never assumed: this run's deployment approvals (GET …/actions/runs/{run_id}/approvals)
   #                             must hold an `approved` review of `production`, and the environment's required reviewers
   #                             (GET …/environments/production) must be exactly one team — the G5a team in
-  #                             sdlc/gates/approvers.yaml — with no individuals; that team is recorded. Otherwise it FAILS
+  #                             storyline/gates/approvers.yaml — with no individuals; that team is recorded. Otherwise it FAILS
   #                             and nothing is recorded (REPO-DESIGN.md §7.10)
   #   later ship              → G5b pending — the change request ship.yml opened, with its status as `cr-view` reports
   #                             it; the decision is a named approver's in Tines, recorded later by promote.yml (or by
   #                             promote.yml dispatched with evidence_only after a push in Tines)
-  # Stories the lifecycle does not track (no tracker row, no sdlc/work/<slug>/) are skipped. A G5a REJECTION never
+  # Stories the lifecycle does not track (no tracker row, no storyline/work/<slug>/) are skipped. A G5a REJECTION never
   # reaches this job (the reviewer's rejection stops the production job before the import): record it with promote.yml
   # dispatched with evidence_only and a rejection_note.
   g5-evidence:
@@ -376,7 +376,7 @@ jobs:
           rows = []
           for f in sorted(results_dir.glob("*.jsonl")) if results_dir.is_dir() else []:
               rows += [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
-          approvers = yaml.safe_load(pathlib.Path("sdlc/gates/approvers.yaml").read_text(encoding="utf-8")) or {}
+          approvers = yaml.safe_load(pathlib.Path("storyline/gates/approvers.yaml").read_text(encoding="utf-8")) or {}
 
           def role(gate):
               teams = (approvers.get("gates") or {}).get(gate, {}).get("teams") or []
@@ -410,7 +410,7 @@ jobs:
                          for t in (((approvers.get("gates") or {}).get("G5a") or {}).get("teams") or [])}
               if individuals or len(teams) != 1 or not (teams <= allowed):
                   fail(f"the `production` environment's required reviewers must be exactly one team, the G5a team in "
-                       f"sdlc/gates/approvers.yaml ({', '.join(sorted(allowed)) or 'none listed'}), and no individuals; found teams "
+                       f"storyline/gates/approvers.yaml ({', '.join(sorted(allowed)) or 'none listed'}), and no individuals; found teams "
                        f"{sorted(teams)} and {len(individuals)} individual reviewer(s) — the approver's team cannot be told, so nothing is recorded")
               return next(iter(teams))
 
@@ -424,7 +424,7 @@ jobs:
               if not slug or r.get("error") or r.get("dry_run"):
                   print(f"::notice::{slug}: not shipped ({r.get('error') or 'dry run'}) — no evidence")
                   continue
-              common = ["python3", "scripts/sdlc_state.py", "ship-evidence", slug, "--sha", sha, "--workflow", "ship.yml",
+              common = ["python3", "scripts/storyline_state.py", "ship-evidence", slug, "--sha", sha, "--workflow", "ship.yml",
                         "--workflow-run", os.environ["RUN_ID"], "--decided-at", now]
               if r.get("mode") == "new":
                   cmd = common + ["--gate", "G5a", "--decision", "approved_and_imported", "--approver-role", str(g5a_role),
@@ -454,7 +454,7 @@ jobs:
               fh.write(f"count={written}\n")
           PY
           # only the evidence files (touch set scripts.ship-evidence): ship.md and events.jsonl per story
-          git status --porcelain -uall -- 'sdlc/work/*/ship.md' 'sdlc/work/*/events.jsonl' | awk '{print $NF}' > "$RUNNER_TEMP/g5-files.txt"
+          git status --porcelain -uall -- 'storyline/work/*/ship.md' 'storyline/work/*/events.jsonl' | awk '{print $NF}' > "$RUNNER_TEMP/g5-files.txt"
           tar -czf "$RUNNER_TEMP/g5-evidence.tgz" --files-from "$RUNNER_TEMP/g5-files.txt"
 
       - name: Hand the evidence to the PR job
@@ -466,9 +466,9 @@ jobs:
           retention-days: 3
 
   # Part 3 of 3: one PR per story on tracker/ship-<slug>-<sha7> (touch set `tracker`), opened with the tracker-bot GitHub
-  # App token so sdlc.yml — the one required check — runs on it (a PR opened with GITHUB_TOKEN starts no workflows). The
-  # PR needs an approving review from the G5 team in sdlc/gates/approvers.yaml; after it merges,
-  # `./scripts/sdlc advance <slug>` reads ship.md on main.
+  # App token so storyline.yml — the one required check — runs on it (a PR opened with GITHUB_TOKEN starts no workflows). The
+  # PR needs an approving review from the G5 team in storyline/gates/approvers.yaml; after it merges,
+  # `./scripts/storyline advance <slug>` reads ship.md on main.
   g5-evidence-pr:
     name: G5 evidence (tracker/ship-<slug>-<sha7> PRs, tracker-bot token)
     needs: g5-evidence
@@ -503,24 +503,24 @@ jobs:
           tar -xzf "$RUNNER_TEMP/g5/g5-evidence.tgz" -C "$RUNNER_TEMP/g5/x"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for dir in "$RUNNER_TEMP"/g5/x/sdlc/work/*/; do
+          for dir in "$RUNNER_TEMP"/g5/x/storyline/work/*/; do
             [ -d "$dir" ] || continue
             slug=$(basename "$dir")
             branch="tracker/ship-${slug}-${GITHUB_SHA::7}"
             git switch --quiet -C "$branch" "$base_sha"
-            mkdir -p "sdlc/work/${slug}"
-            cp "$dir"ship.md "sdlc/work/${slug}/ship.md"
-            [ -f "$dir"events.jsonl ] && cp "$dir"events.jsonl "sdlc/work/${slug}/events.jsonl"
-            git add -- "sdlc/work/${slug}/ship.md" "sdlc/work/${slug}/events.jsonl"
+            mkdir -p "storyline/work/${slug}"
+            cp "$dir"ship.md "storyline/work/${slug}/ship.md"
+            [ -f "$dir"events.jsonl ] && cp "$dir"events.jsonl "storyline/work/${slug}/events.jsonl"
+            git add -- "storyline/work/${slug}/ship.md" "storyline/work/${slug}/events.jsonl"
             if git diff --cached --quiet; then git switch --quiet --detach "$base_sha"; continue; fi
-            gate=$(sed -n 's/^gate: *//p' "sdlc/work/${slug}/ship.md" | head -n1)
-            decision=$(sed -n 's/^decision: *//p' "sdlc/work/${slug}/ship.md" | head -n1)
+            gate=$(sed -n 's/^gate: *//p' "storyline/work/${slug}/ship.md" | head -n1)
+            decision=$(sed -n 's/^decision: *//p' "storyline/work/${slug}/ship.md" | head -n1)
             git commit --quiet -m "ship(${slug}): G5 evidence ${gate} ${decision} (${GITHUB_SHA::7})"
             git push --quiet --force "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
             {
               echo "G5 evidence for \`${slug}\`: **${gate} ${decision}** at \`${GITHUB_SHA::7}\`, written by ship.yml run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (REPO-DESIGN.md §3.3 row 20)."
               echo
-              echo "It needs an approving review from the ${gate} team in \`sdlc/gates/approvers.yaml\`. After it merges, \`./scripts/sdlc advance ${slug}\` reads \`sdlc/work/${slug}/ship.md\` on main."
+              echo "It needs an approving review from the ${gate} team in \`storyline/gates/approvers.yaml\`. After it merges, \`./scripts/storyline advance ${slug}\` reads \`storyline/work/${slug}/ship.md\` on main."
             } > "$RUNNER_TEMP/body-${slug}.md"
             if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' < /dev/null | grep -q .; then
               gh pr create --base main --head "$branch" --title "ship(${slug}): G5 evidence ${gate} ${decision}" \

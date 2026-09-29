@@ -1,7 +1,7 @@
 /**
  * routes/Milestones.tsx — the day-1 / week-1 / week-4 onboarding checklist (REPO-DESIGN.md §11.1).
  *
- * §9.2 row "Milestones": data = useRecords(sdlc_milestones). The criteria are the ARTIFACT field (Markdown bullet
+ * §9.2 row "Milestones": data = useRecords(storyline_milestones). The criteria are the ARTIFACT field (Markdown bullet
  * lines, from kit/tracker/milestones.yaml through the tracker sync). Status and evidence are updated in Tines or by
  * PR, and reach git through the tracker PR; kit/ONBOARDING.md is the runbook behind each item.
  */

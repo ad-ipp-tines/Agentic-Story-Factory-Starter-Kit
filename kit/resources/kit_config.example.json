@@ -18,7 +18,7 @@
   "environment": "prod",
   "github": {
     "org": "<org>",
-    "repo": "tines-story-factory",
+    "repo": "tines-storyworks",
     "template_repo": "<template-owner>/<template-repo>"
   },
   "kit_run": "<run-guid>",

@@ -1,7 +1,7 @@
 /**
  * routes/Costs.tsx — monthly credit estimate vs actual, per story.
  *
- * REPO-DESIGN.md §9.2 row "Costs": estimates from Records (sdlc_backlog.credit_estimate_monthly, set at design from
+ * REPO-DESIGN.md §9.2 row "Costs": estimates from Records (storyline_backlog.credit_estimate_monthly, set at design from
  * credits observed in dev); actuals from the app_costs endpoint → GET /api/v1/ai_usage?group_by=story with the
  * tines_api_readonly key, which sees only what that key may see (K38). The chart is hand-written SVG (no chart
  * dependency is assumed, K18). Until the App's endpoint call is wired (K18), actuals show as "n/a" and the Tines

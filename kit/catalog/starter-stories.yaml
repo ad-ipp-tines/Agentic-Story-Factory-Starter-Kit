@@ -6,7 +6,7 @@
 #   - `./scripts/kit bundle` → the kit_catalog Resource (kit/resources/kit_catalog.example.json shows the result).
 #     The kickoff Page's `pick` Option list is `page_pick_options` there: these keys + `custom` + `none`.
 #   - [KIT] 00 A2 `normalize` copies key, title, library_seed_id, mode and owner for every pick, and computes
-#     target_date = provisioned_at + target_offset_days (UTC). A21 seeds one sdlc_backlog row per pick, plus the
+#     target_date = provisioned_at + target_offset_days (UTC). A21 seeds one storyline_backlog row per pick, plus the
 #     `always_seeded` rows when absent.
 #   - `./scripts/kit apply-config --targets tracker` fills an EMPTY target_date the same way on the Community path,
 #     where no kit story runs (kit/docs/community-path.md).
@@ -16,7 +16,7 @@
 #     importing it into the Seeds folder is [BY HAND].
 #   - Credits: only the AI Agent action, Workbench and Workbench for Storyboard consume credits. Every story without
 #     them is 0. `monthly: null` means "set at design": runs/day × credits/run observed in dev × 30
-#     (./scripts/sdlc estimate), never a guess written here.
+#     (./scripts/storyline estimate), never a guess written here.
 #   - Owners are roles, never people. Titles follow `[PREFIX] NN · Verb noun`; a sub-story ends in (sub).
 #   - Mode values are the tracker's: none | sub-story | mode-1-preset | mode-3-agent | mode-4-server.
 #   - needs.entitlements uses the key names of kit/tenant/config.example.yaml `entitlements` (pages, apps, cases,

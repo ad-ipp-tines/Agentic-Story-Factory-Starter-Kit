@@ -8,7 +8,7 @@ This repository has two model choices, and they never mix. This page is about th
 
 | | **Tines-side provider** (this page) | **Editor-side model** ([`llm-editor-side.md`](llm-editor-side.md)) |
 |---|---|---|
-| Powers | AI Agent actions — the kit's `planner`, `brief_writer`, `retro_writer` and the two probes; the ops sweep's `triage` and `critic`; any Mode 3 story — plus Workbench and Workbench for Storyboard | Authoring through Mode 2, and every IDE specialist in `.claude/agents/` |
+| Powers | AI Agent actions — the kit's `planner`, `brief_writer`, `retro_writer` and the two probes; the ops sweep's `triage` and `critic`; any Mode 3 story — plus Workbench and Workbench for Storyboard | Authoring through Mode 2, and every IDE crew member in `.claude/agents/` |
 | Configured | Settings → AI settings, by a tenant owner, **in the UI only**: the API only lists providers | In the editor (Cursor, Claude Code) |
 | Paid with | Tines AI credits, or your own provider's bill | The editor plan. No Tines credits are listed for the Tines Stories MCP server; whether its research and listing helpers use credits is VERIFY #11 |
 | The kickoff Page's `llm_choice` means | **this column** | not this |
@@ -37,7 +37,7 @@ This repository has two model choices, and they never mix. This page is about th
 
 ## Smart and fast, and why the kit pins a model
 
-A Task-mode AI Agent action with **no agentic capability** runs on the tenant's **fast** default. Tools, code analysis, web search **or an attached skill** switch the default to the **smart** model. The kit's three runtime specialists are tool-less but each carries a skill, so the fast model is **pinned on each action** `[BY HAND]` and recorded in `stories/kit-factory/story.meta.yaml`; without the pin they would run on the smart model. The cost check `cost.4` (`./scripts/sdlc estimate --check`) estimates any agentic action at the smart model unless a model is pinned, and fails a fast-tier agent that carries a skill without one.
+A Task-mode AI Agent action with **no agentic capability** runs on the tenant's **fast** default. Tools, code analysis, web search **or an attached skill** switch the default to the **smart** model. The kit's three runtime crew are tool-less but each carries a skill, so the fast model is **pinned on each action** `[BY HAND]` and recorded in `stories/kit-launch/story.meta.yaml`; without the pin they would run on the smart model. The cost check `cost.4` (`./scripts/storyline estimate --check`) estimates any agentic action at the smart model unless a model is pinned, and fails a fast-tier agent that carries a skill without one.
 
 ## How the kit checks your choice on day 1
 
@@ -56,18 +56,18 @@ A Task-mode AI Agent action with **no agentic capability** runs on the tenant's 
    | Verdict | Means | Do |
    |---|---|---|
    | `ok` | The provider answers and handles a streamed tool call | Nothing. For `tines_provided` expect `credits_used > 0`; for every custom or local provider expect `credits_used == 0` |
-   | `tool_calls_unreliable` | The tool-less call passed and the tool call failed | Run only **tool-less** agents on this model (the kit's three runtime specialists are); keep tool-using agents, such as the ops `triage`, on a foundation provider pinned per action. Acknowledge it in the day-1 milestone |
+   | `tool_calls_unreliable` | The tool-less call passed and the tool call failed | Run only **tool-less** agents on this model (the kit's three runtime crew are); keep tool-using agents, such as the ops `triage`, on a foundation provider pinned per action. Acknowledge it in the day-1 milestone |
    | `failed` | The tool-less call failed | Check the provider's base URL, key credential and team scoping; for a local model, the Tunnel ([`troubleshooting.md`](troubleshooting.md), `step_probe`) |
-   | `not_entitled` | The AI Agent action is not entitled | The runtime specialists stay off; intake briefs are written from the template |
+   | `not_entitled` | The AI Agent action is not entitled | The runtime crew stay off; intake briefs are written from the template |
 
    `credits_used > 0` on a custom provider means the action ran on a Tines-provided model: the custom provider is not the default for the ops team.
 
 ## Choosing
 
 - **Start with `tines_provided`** unless policy says otherwise: no configuration, credit alerts work, and the probe's expectations are the simplest.
-- **Bring your own provider** when a contract, a data-handling rule or one bill for every model requires it. Custom providers consume no Tines credits but are **not covered by Tines' credit alerts**, so the kit's own bounds carry the weight: the `sdlc_limits` caps and kill switch, a token alert per AI Agent action (whether those act on custom providers is K25) and a budget line per action.
-- **A local model** fits the tool-less agents first — the three runtime specialists and the ops `critic` — and tool-using agents only after their own eval set passes on it ([`llm-local-via-tunnel.md`](llm-local-via-tunnel.md)).
-- **Changing later** is a Settings change plus a PR to `kit/tenant/config.yaml` (`llm.choice`, `llm.provider_name`), so `kit_config` and the cost checks follow. Re-run the probe after a provider change or after pinning a model (`stories/kit-factory/sections/F-llm-probe.md`).
+- **Bring your own provider** when a contract, a data-handling rule or one bill for every model requires it. Custom providers consume no Tines credits but are **not covered by Tines' credit alerts**, so the kit's own bounds carry the weight: the `storyline_limits` caps and kill switch, a token alert per AI Agent action (whether those act on custom providers is K25) and a budget line per action.
+- **A local model** fits the tool-less agents first — the three runtime crew and the ops `critic` — and tool-using agents only after their own eval set passes on it ([`llm-local-via-tunnel.md`](llm-local-via-tunnel.md)).
+- **Changing later** is a Settings change plus a PR to `kit/tenant/config.yaml` (`llm.choice`, `llm.provider_name`), so `kit_config` and the cost checks follow. Re-run the probe after a provider change or after pinning a model (`stories/kit-launch/sections/F-llm-probe.md`).
 
 ## Verify in your tenant before relying on it
 

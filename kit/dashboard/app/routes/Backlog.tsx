@@ -1,8 +1,8 @@
 /**
  * routes/Backlog.tsx — the board: one column per phase, filters by owner, tier and mode, and the intake form.
  *
- * REPO-DESIGN.md §9.2 row "Backlog": data = useRecords(sdlc_backlog); phase names from
- * useResource(sdlc_state_machine). Adding a use case is a write, so it goes through the app_add_use_case endpoint
+ * REPO-DESIGN.md §9.2 row "Backlog": data = useRecords(storyline_backlog); phase names from
+ * useResource(storyline_state_machine). Adding a use case is a write, so it goes through the app_add_use_case endpoint
  * (../endpoints.md), which runs the same chain as the add_use_case Page (C4). Until the App's endpoint call is
  * wired (VERIFY K18), the form says so and links to the tracker Page, where "Add a use case" does the same thing.
  * A new row is provisional until its tracker PR merges (Flow 2).

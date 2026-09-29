@@ -1,12 +1,12 @@
 /**
  * routes/Gates.tsx — every open gate, who decides it, and where.
  *
- * REPO-DESIGN.md §9.2 row "Gates": data = useRecords(sdlc_backlog, open_gate ≠ none) — filtered here as well, so
+ * REPO-DESIGN.md §9.2 row "Gates": data = useRecords(storyline_backlog, open_gate ≠ none) — filtered here as well, so
  * the view is right whatever filter syntax the hook accepts (VERIFY K18). Each gate has ONE instrument (§4.5 rule 3):
  *   G0, G6, G7, GX and the GB release (unpark) → the gate_decision Page. "Decide" deep-links to the tracker Page
  *     ("Decide a gate") until K18 confirms that an app endpoint receives the viewer's identity; the Page checks the
- *     submitter's email against the sdlc_approvers Resource on every decision.
- *   G1 → ./scripts/sdlc ready on the design PR · G2 → the merge of the design PR · G3 → /sdlc-gate in the build
+ *     submitter's email against the storyline_approvers Resource on every decision.
+ *   G1 → ./scripts/storyline ready on the design PR · G2 → the merge of the design PR · G3 → /storyline-gate in the build
  *   session · G4 → the merge of the build PR · G5a → the GitHub production environment's required reviewer ·
  *   G5b → the change request in Tines, approved and pushed by a named approver.
  */
@@ -24,9 +24,9 @@ import {
 
 const INSTRUMENT: Record<string, string> = {
   G0: "the gate_decision Page",
-  G1: "./scripts/sdlc ready — the sdlc check on the design PR",
+  G1: "./scripts/storyline ready — the storyline check on the design PR",
   G2: "the merge of the design PR (a CODEOWNER who is not the author)",
-  G3: "/sdlc-gate <slug> G3 approve — in the build session",
+  G3: "/storyline-gate <slug> G3 approve — in the build session",
   G4: "the merge of the build PR (CI green, QA verification line, a CODEOWNER, a human merge)",
   G5a: "the GitHub production environment's required reviewer releases ship.yml's first import",
   G5b: "the change request in Tines — a named approver approves and pushes",
@@ -95,9 +95,9 @@ export default function Gates() {
         {gates.map((gate) => (
           <section key={gate}>
             <h3 className="text-sm font-semibold">
-              {gate} <span className="font-normal text-slate-500">— decided by {sm.value?.gate_decided_by?.[gate] ?? "see sdlc/gates/README.md"}</span>
+              {gate} <span className="font-normal text-slate-500">— decided by {sm.value?.gate_decided_by?.[gate] ?? "see storyline/gates/README.md"}</span>
             </h3>
-            <p className="mb-2 text-xs text-slate-500">Instrument: {INSTRUMENT[gate] ?? "see sdlc/gates/README.md"}</p>
+            <p className="mb-2 text-xs text-slate-500">Instrument: {INSTRUMENT[gate] ?? "see storyline/gates/README.md"}</p>
             <table className="w-full text-left text-sm">
               <thead className="text-xs text-slate-500">
                 <tr>

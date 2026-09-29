@@ -17,7 +17,7 @@
       "due_date": "",
       "id": "day-1",
       "status": "not_started",
-      "title": "Day 1: the factory is provisioned and safe to build in"
+      "title": "Day 1: Storyworks is provisioned and safe to build in"
     },
     {
       "due_date": "",
@@ -32,7 +32,7 @@
       "title": "Week 4: the lifecycle runs end to end, including improve"
     }
   ],
-  "milestones_csv": "id,title,status,due_date\nday-1,Day 1: the factory is provisioned and safe to build in,not_started,\nweek-1,Week 1: the first stories are live and the tracker round trip works,not_started,\nweek-4,\"Week 4: the lifecycle runs end to end, including improve\",not_started,\n",
+  "milestones_csv": "id,title,status,due_date\nday-1,Day 1: Storyworks is provisioned and safe to build in,not_started,\nweek-1,Week 1: the first stories are live and the tracker round trip works,not_started,\nweek-4,\"Week 4: the lifecycle runs end to end, including improve\",not_started,\n",
   "open_gates": [],
   "schema_version": 1,
   "source_sha": "",
@@ -59,14 +59,14 @@
     },
     {
       "credit_estimate_monthly": null,
-      "key": "kit-factory",
+      "key": "kit-launch",
       "open_gate": "none",
       "owner": "platform",
       "phase": "design",
       "status": "active",
       "target_date": "",
-      "title": "[KIT] 00 · Run the story factory"
+      "title": "[KIT] 00 · Launch Storyworks"
     }
   ],
-  "stories_csv": "key,title,phase,status,open_gate,owner,target_date,credit_estimate_monthly\nexample-enrich-ip,[SEC] 01 · Enrich IP (sub),intake,active,none,security-automation,,0\nops-story-health-monitor,[OPS] 10 · Monitor story health and credits,intake,active,none,ops,,\nkit-factory,[KIT] 00 · Run the story factory,design,active,none,platform,,\n"
+  "stories_csv": "key,title,phase,status,open_gate,owner,target_date,credit_estimate_monthly\nexample-enrich-ip,[SEC] 01 · Enrich IP (sub),intake,active,none,security-automation,,0\nops-story-health-monitor,[OPS] 10 · Monitor story health and credits,intake,active,none,ops,,\nkit-launch,[KIT] 00 · Launch Storyworks,design,active,none,platform,,\n"
 }

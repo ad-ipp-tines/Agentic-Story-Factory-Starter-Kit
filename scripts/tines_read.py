@@ -11,7 +11,7 @@ stays the single home of the client, the manifest and the secret patterns:
                          time with an offset, or a relative ``15m`` / ``1h`` /
                          ``2d`` / ``1w`` (also ``now-1h``) and return a UTC
                          ``YYYY-MM-DDTHH:MM:SSZ`` string.
-* ``extract_rows``     — pull the list out of a response envelope. The envelope
+* ``extract_rows``     — pull the list out of a response wrapper. The wrapper
                          key of each list endpoint is **VERIFY** (the research
                          names the fields inside the rows, not the wrapper), so
                          the caller passes the likely keys and this falls back to
@@ -81,7 +81,7 @@ def parse_when(text: str, *, now: Optional[_dt.datetime] = None) -> str:
 
 
 def extract_rows(response: Any, preferred_keys: Sequence[str] = ()) -> list[dict[str, Any]]:
-    """Return the list of row objects inside a list response (envelope key VERIFY)."""
+    """Return the list of row objects inside a list response (wrapper key VERIFY)."""
     if isinstance(response, list):
         return [r for r in response if isinstance(r, dict)]
     if not isinstance(response, dict):

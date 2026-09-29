@@ -1,6 +1,6 @@
 # Study guides
 
-_The learning path for the Agentic Story Factory. Guide 00 is written. Guides 01–06 are specified below so an AI contributor can write them as pull requests against the same rules as everything else in this repository (see [`HANDOFF.md`](../../HANDOFF.md))._
+_The learning path for the Tines Storyworks. Guide 00 is written. Guides 01–06 are specified below so an AI contributor can write them as pull requests against the same rules as everything else in this repository (see [`HANDOFF.md`](../../HANDOFF.md))._
 
 ## The path
 
@@ -9,7 +9,7 @@ _The learning path for the Agentic Story Factory. Guide 00 is written. Guides 01
 | 00 | [The visual tour](00-visual-tour.md) — eleven diagrams, one idea each | everyone | 30 min | written |
 | 01 | Your first story, end to end | builders | 90 min, hands on | to write |
 | 02 | Approving gates | approvers, CODEOWNERS | 30 min | to write |
-| 03 | The specialists and how they hand off | builders, platform owners | 45 min | to write |
+| 03 | The crew and how they hand off | builders, platform owners | 45 min | to write |
 | 04 | Day one with the starter kit | onboarding engineers, tenant owners | 60 min, hands on | to write |
 | 05 | Running it: monitoring, drift, rollback, break-glass | ops, security | 45 min | to write |
 | 06 | Cost and security for decision makers | managers, security reviewers | 20 min | to write |
@@ -18,9 +18,9 @@ Until 01–06 exist, these existing pages carry the same material in reference f
 
 | Guide | Read today |
 |---|---|
-| 01 | [`docs/09-lifecycle-walkthrough.md`](../09-lifecycle-walkthrough.md), [`sdlc/examples/example-enrich-ip/`](../../sdlc/examples/example-enrich-ip/), [`.claude/skills/tines-build-story/SKILL.md`](../../.claude/skills/tines-build-story/SKILL.md) |
-| 02 | [`sdlc/gates/README.md`](../../sdlc/gates/README.md) and one file per gate |
-| 03 | [`sdlc/agents/README.md`](../../sdlc/agents/README.md), [`sdlc/agents/contracts/`](../../sdlc/agents/contracts/) |
+| 01 | [`docs/09-lifecycle-walkthrough.md`](../09-lifecycle-walkthrough.md), [`storyline/examples/example-enrich-ip/`](../../storyline/examples/example-enrich-ip/), [`.claude/skills/tines-build-story/SKILL.md`](../../.claude/skills/tines-build-story/SKILL.md) |
+| 02 | [`storyline/gates/README.md`](../../storyline/gates/README.md) and one file per gate |
+| 03 | [`storyline/crew/README.md`](../../storyline/crew/README.md), [`storyline/crew/contracts/`](../../storyline/crew/contracts/) |
 | 04 | [`kit/README.md`](../../kit/README.md), [`kit/ONBOARDING.md`](../../kit/ONBOARDING.md), [`kit/docs/`](../../kit/docs/) |
 | 05 | [`docs/02-workflows.md`](../02-workflows.md) §4, [`docs/06-rollback-and-recovery.md`](../06-rollback-and-recovery.md) |
 | 06 | [`docs/03-cost-controls.md`](../03-cost-controls.md), [`docs/04-security-model.md`](../04-security-model.md), [`docs/05-pros-and-cons.md`](../05-pros-and-cons.md) |
@@ -36,17 +36,17 @@ A guide is accepted when it:
 5. **Marks anything unconfirmed** with its `docs/VERIFY.md` item number instead of stating it as fact.
 6. **Ends with a "Check yourself" block** of five or six questions, answered by links.
 7. **Uses only placeholders** (`<your-tenant>`, `<org>`). No customer names, hostnames, credentials or model ids. The four MCP surfaces are only ever called modes.
-8. **Passes `./scripts/sdlc check --all`** (the `doc_links_resolve` check covers every relative link).
+8. **Passes `./scripts/storyline check --all`** (the `doc_links_resolve` check covers every relative link).
 
 ## Spec per guide
 
-**01 · Your first story, end to end.** Follow `example-enrich-ip` from intake to live: `/sdlc` intake, the scout's discovery note, the architect's design and contract, the eval cases, G1 and G2, the build loop with the G3 plan, export and lint, the verify reviewers and G4, `ship.yml` and the change request, G5, shadow and G6. One diagram per phase, one command block per step, and what the builder sees at each gate.
+**01 · Your first story, end to end.** Follow `example-enrich-ip` from intake to live: `/storyline` intake, the scout's discovery note, the architect's design and contract, the eval cases, G1 and G2, the build loop with the G3 plan, export and lint, the verify reviewers and G4, `ship.yml` and the change request, G5, shadow and G6. One diagram per phase, one command block per step, and what the builder sees at each gate.
 
 **02 · Approving gates.** For each human gate (G0, G2, G3, G4, G5a, G5b, G6, G7, GX, and releasing GB): what arrives, what evidence to open, what to check, how to record the decision, and what happens next. A decision tree diagram per gate family. What an approver must never delegate to an agent.
 
-**03 · The specialists and how they hand off.** The roster by phase, the envelope and payload contracts, the touch sets, `apply`, the rework cap, what `next` decides and why no model decides it, running the same flow in Claude Code and in Cursor (and what Cursor cannot yet scope, VERIFY K4), and the Tines-side runtime agents.
+**03 · The crew and how they hand off.** The roster by phase, the baton and payload contracts, the touch sets, `apply`, the rework cap, what `next` decides and why no model decides it, running the same flow in Claude Code and in Cursor (and what Cursor cannot yet scope, VERIFY K4), and the Tines-side runtime agents.
 
-**04 · Day one with the starter kit.** The plan check, the credentials by name, the import, the kickoff Page field by field, reading the setup report, merging the setup-report PR, the `[BY HAND]` list, turning the runtime specialists on, and choosing a model provider including a local model behind the tunnel.
+**04 · Day one with the starter kit.** The plan check, the credentials by name, the import, the kickoff Page field by field, reading the setup report, merging the setup-report PR, the `[BY HAND]` list, turning the runtime crew on, and choosing a model provider including a local model behind the tunnel.
 
 **05 · Running it.** The monitoring signals, the router, the sweep and its proposals, approving an alert change, the propose-fix PR, drift PRs, rollback, and the break-glass jobs — each with a diagram and a runbook table.
 

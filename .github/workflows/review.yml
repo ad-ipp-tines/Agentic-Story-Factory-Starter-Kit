@@ -30,18 +30,18 @@
 
 name: review
 
-# Triggers (REPO-DESIGN.md §3.3 row 18): no `pull_request` trigger of its own. sdlc.yml — the one required check, with
+# Triggers (REPO-DESIGN.md §3.3 row 18): no `pull_request` trigger of its own. storyline.yml — the one required check, with
 # no paths filter, on the same event types (opened, synchronize, reopened, ready_for_review) — calls this workflow
 # (workflow_call) when the PR's changes match the path list below, the one the `pull_request` trigger carried,
-# unchanged. sdlc.yml reads it from between the two markers, so keep it here. Both jobs name the environment
+# unchanged. storyline.yml reads it from between the two markers, so keep it here. Both jobs name the environment
 # `review`, so its ANTHROPIC_API_KEY is the one used (an environment secret wins over one the caller passes); without
 # it the `gate` job reports the review off, exactly as before.
-# sdlc-call-paths begin
+# storyline-call-paths begin
 #   - "stories/**"
 #   - "tines-skills/**"
 #   - "policies/**"
 #   - ".claude/skills/**"
-# sdlc-call-paths end
+# storyline-call-paths end
 on:
   workflow_call:
     secrets:
