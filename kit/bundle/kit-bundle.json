@@ -608,6 +608,9 @@
       "path": ".cursor/mcp.json.example"
     },
     {
+      "path": ".cursor/rules/3b.mdc"
+    },
+    {
       "path": ".cursor/rules/story-json.mdc"
     },
     {
@@ -710,6 +713,18 @@
     },
     {
       "path": ".mcp.json.example"
+    },
+    {
+      "path": "3b/CURSOR-PROMPT.md"
+    },
+    {
+      "path": "3b/PIVOT.md"
+    },
+    {
+      "path": "3b/TASKS.md"
+    },
+    {
+      "path": "AGENTS-3B.md"
     },
     {
       "path": "AGENTS.md"

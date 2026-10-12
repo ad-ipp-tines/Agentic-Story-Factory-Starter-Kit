@@ -1,0 +1,15 @@
+---
+description: Always-loaded 3B workflow conventions. Follow AGENTS-3B.md for workflow directories; AGENTS.md still governs stories.
+alwaysApply: true
+---
+
+# 3B conventions
+
+Load and follow `AGENTS-3B.md`. It is the conventions file for 3B workflow directories on this pivot.
+
+- `AGENTS.md` still governs `stories/**`. Where the two files disagree about a workflow directory, `AGENTS-3B.md` wins.
+- "Mode" is only the four Tines Stories MCP surfaces. The 3B connection is the 3B MCP server, the 3B CLI, or the in-product editor.
+- Never invent an endpoint, a CLI subcommand, or an MCP tool name.
+- Never put a secret in a file, a chat, or a volume. Credentials go through connectors only.
+- Never copy a workflow `id` onto another workflow.
+- Unconfirmed 3B behaviour stays marked **VERIFY**. Do not state it as fact.
