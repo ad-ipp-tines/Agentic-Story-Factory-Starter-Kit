@@ -16,6 +16,7 @@ _Tines Stories as Code · Platform: **Tines Stories** · docs v1 (2026-09-24) ·
 | `06-rollback-and-recovery.md` | Production is misbehaving, an approver rejected a change, or the monitor must be silenced | 10 min — read it **before** you need it |
 | `07-verify-before-you-rely-on-it.md` | Before any demo, slide, or written claim — the consolidated VERIFY list with in-tenant checks | 10 min |
 | `08-storyworks.md` | You are deciding whether to adopt the Storyworks: how this scaffold, the lifecycle (`storyline/`) and the starter kit (`kit/`) fit together, what it costs and what stays by hand | 15 min |
+| [`3b/PIVOT.md`](../3b/PIVOT.md) | You are on the 3B pivot: the thesis, the Stories-to-3B mapping, and which 3B claims are still VERIFY | 10 min |
 | `09-lifecycle-walkthrough.md` | You are about to take a story through the lifecycle: one story from intake to improve, with every command, gate and file, following `storyline/examples/example-enrich-ip/` | 25 min |
 | `study-guides/` | You are new, or teaching someone who is: [the visual tour](study-guides/00-visual-tour.md) (eleven diagrams) and the specs for guides 01–06 | 30 min |
 | `VERIFY.md` | The **ledger**: which VERIFY items your tenant has confirmed, when, and what changed in the repo | living |

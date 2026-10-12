@@ -1,10 +1,13 @@
-# Tines Storyworks Starter Kit
+# 3B Workflow Factory Starter Kit
 
-A starter kit to set up Storyworks with an LLM to build, manage, and audit Tines stories via agents.
+A starter kit to set up the 3B Workflow Factory with an LLM to build, manage, and audit workflows via agents.
+
+This branch pivots the Tines Storyworks kit. The thesis below is the 3B reading. The Stories tree (`stories/`, the four modes, change control) stays until a later task replaces the wire and the artifact. The map is [`3b/PIVOT.md`](3b/PIVOT.md). "Mode" remains the word for the four Tines Stories MCP surfaces only. The 3B connection is the 3B MCP server, the 3B CLI, or the in-product editor — not a mode.
 
 | Part | What it is | Start here |
 |---|---|---|
-| The repository root | Stories and skills as code: editor skills, hooks, CI, policies, the Tines API dispatcher, the ops monitoring stories | this page |
+| The repository root | Stories and skills as code, plus the 3B pivot: editor skills, hooks, CI, policies, the Tines API dispatcher, the ops monitoring stories | this page |
+| [`3b/`](3b/PIVOT.md) | The pivot: thesis, Stories-to-3B mapping, and the VERIFY boundary | [`3b/PIVOT.md`](3b/PIVOT.md) |
 | [`storyline/`](storyline/README.md) | the Storyline: phases, gates and the crew members that run them | [`storyline/README.md`](storyline/README.md) |
 | [`kit/`](kit/README.md) | The starter kit: one importable story that provisions the repository, skills, tracker, dashboard and model provider | [`kit/README.md`](kit/README.md) |
 
@@ -22,22 +25,24 @@ Stories are authored from the editor through the **Tines Stories MCP server** (M
 
 ## The thesis: the value is the system around the prompt
 
-Anyone can prompt an AI to "build me a phishing triage story". That prompt is the cheapest part. What makes the result **fast, controlled and safe** is everything the prompt sits inside:
+Anyone can prompt an AI to "build me this workflow". That prompt is the cheapest part. What makes the result **fast, controlled and safe** is everything the prompt sits inside. On 3B the artifact is a workflow directory and the wire is the 3B MCP server, the 3B CLI, or the in-product editor. The system around that prompt is the same kind of system this repository already keeps for Tines Stories.
 
-| Around the prompt | What it gives you | Where it lives |
+| Around the prompt | What it gives you | Where it lives on this pivot |
 |---|---|---|
-| A procedure the model follows every time (explore → plan → implement → validate → export → review) | Speed without re-deriving the craft | `.claude/skills/tines-build-story/` |
-| One conventions file both editors load | Stories that look alike across builders | `AGENTS.md` (+ `CLAUDE.md` importing it) |
-| A stable JSON export in git | A diff on every change, a rollback point for free | `stories/**/story.json`, `scripts/normalize.jq` |
-| Deterministic lint | Rules a security team can read without reading prose | `scripts/lint-story.sh`, `policies/lint-rules.yml` |
-| A reviewer that is not the author | The generator never approves its own work | `.claude/agents/tines-reviewer.md`, `review.yml` |
+| A procedure the model follows every time | Speed without re-deriving the craft | `.claude/skills/tines-build-story/` for Stories. The 3B loop (brief, copy the template, implement, run the step, pin step tests, README, review, Push live by a named person) is task #7 |
+| One conventions file both editors load | Workflows that look alike across builders | `AGENTS.md` for Stories. `AGENTS-3B.md` is task #6 |
+| An artifact that is already files | A diff on every change, a rollback point for free | `workflows/<name>/` (`workflow.toml`, step folders). Layout is task #5. Stories stay at `stories/**/story.json` until the migration lane |
+| Deterministic lint | Rules a security team can read without reading prose | `scripts/lint-story.sh` for Stories. Workflow lint is task #10 |
+| A reviewer that is not the author | The generator never approves its own work | `.claude/agents/tines-reviewer.md` and `review.yml` today. The 3B reviewer role is task #9 |
 | Hooks | Enforcement, not advice — an instruction is a request, a hook is a rule | `.claude/hooks/*` |
-| Change control with "Require approval for all changes" | A deterministic gate no prompt can argue past | `ship.yml`, `docs/02-change-control-path.md` |
-| The ops pair | Observability that proposes, with evidence, and never acts alone | `stories/ops-error-router/`, `stories/ops-story-health-monitor/` |
-| Budgets as files, token alerts, tool caps | A cost ceiling that fires before the platform does | `policies/cost-ceilings.yml`, per-agent Status-tab alerts |
-| Team-scoped keys, OAuth, allow-listed credentials | Least privilege by construction | `.env.example`, GitHub environment secrets, Tines credentials |
+| A human gate on what goes live | A deterministic gate no prompt can argue past | Stories: change control (`ship.yml`). 3B: a draft branch, step tests, a reviewer, then Push live by a named person. The exact Push live control is **VERIFY** |
+| The ops pair | Observability that proposes, with evidence, and never acts alone | `stories/ops-error-router/`, `stories/ops-story-health-monitor/` today. A 3B pair that never pushes live is task #16 |
+| Budgets as files | A cost ceiling that fires before the platform does | `policies/cost-ceilings.yml`. How 3B meters spend is **VERIFY** |
+| Connectors, not pasted secrets | Least privilege by construction | Credentials go through connectors only. Secrets never go in code, chat, or volumes. The connector-setup flow is **VERIFY** |
 
-This is the new way of building: not *prompting harder*, but **prompting inside a system** that makes every output diffable, reviewable, gated, observable and reversible. The prompt is still there — the prompt pack ships with the repo — but the repo is what gets signed off.
+This is the way of building: not prompting harder, but prompting inside a system that makes every output diffable, reviewable, gated, observable and reversible. The prompt is still there. The repository is what gets signed off.
+
+Unconfirmed 3B behaviour is marked **VERIFY** in [`3b/PIVOT.md`](3b/PIVOT.md). The ledger update is task #19. Do not treat a VERIFY line as fact.
 
 ---
 

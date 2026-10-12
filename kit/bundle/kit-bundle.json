@@ -712,6 +712,15 @@
       "path": ".mcp.json.example"
     },
     {
+      "path": "3b/CURSOR-PROMPT.md"
+    },
+    {
+      "path": "3b/PIVOT.md"
+    },
+    {
+      "path": "3b/TASKS.md"
+    },
+    {
       "path": "AGENTS.md"
     },
     {
