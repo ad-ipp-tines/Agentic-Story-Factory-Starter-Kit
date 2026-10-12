@@ -2,7 +2,7 @@
 
 _Start here before starting a new story. Spec: REPO-DESIGN.md §4–§6 (the Storyline: how a story moves). This lifecycle is derived from public practice and is not an official methodology of Tines or of any source it credits ([`PRINCIPLES.md`](PRINCIPLES.md))._
 
-Every story this repository builds moves through one lifecycle: **intake → discover → design → build → verify → ship → operate → improve**. Each phase has entry and exit criteria, artifacts and a gate. Narrow crew members do the work of each phase; code decides what runs next; people hold the gates that change what exists or what runs. Building happens from the editor through the Tines Stories MCP server (Mode 2); shipping reuses the scaffold's change-control path unchanged.
+Every story this repository builds moves through one lifecycle: **intake → discover → design → build → verify → ship → operate → improve**. Each phase has entry and exit criteria, artifacts and a gate. Narrow crew members do the work of each phase; code decides what runs next; people hold the gates that change what exists or what runs. Building a Tines Story happens from the editor through the Tines Stories MCP server (Mode 2); shipping reuses the scaffold's change-control path unchanged. A 3B workflow directory follows [`AGENTS-3B.md`](../AGENTS-3B.md). This page stays the Stories lifecycle until task #11 re-points the gates.
 
 ## Who reads what
 
@@ -13,6 +13,7 @@ Every story this repository builds moves through one lifecycle: **intake → dis
 | **An approver** (a gate holder or change-request approver) | [`gates/README.md`](gates/README.md) | the file for your gate, e.g. [`gates/G0-intake-triage.md`](gates/G0-intake-triage.md) or [`gates/G5-change-request-approval.md`](gates/G5-change-request-approval.md) |
 | **The onboarding engineer** | REPO-DESIGN.md, then `kit/ONBOARDING.md` | [`lifecycle/state-machine.md`](lifecycle/state-machine.md) |
 | **A kit maintainer** | REPO-DESIGN.md §15 | [`lifecycle/`](lifecycle/state-machine.yaml) — every other file takes its names from there |
+| **A 3B workflow builder** | [`AGENTS-3B.md`](../AGENTS-3B.md) | [`3b/PIVOT.md`](../3b/PIVOT.md), then this page for the lifecycle that task #11 will re-point |
 
 ## The model on one page
 

@@ -2,7 +2,9 @@
 
 @AGENTS.md
 
-The line above imports the shared conventions file: what this repo is, the four modes, the golden rules, naming, HTTP Request hardening, monitoring, AI Agent action rules, credits, ownership and never-touch, the skill map. There is one source of truth for conventions and it is `AGENTS.md`. What follows is Claude Code-specific.
+@AGENTS-3B.md
+
+The lines above import the conventions files. `AGENTS.md` is the source of truth for Tines Stories (the four modes, the golden rules, naming, HTTP Request hardening, monitoring, AI Agent action rules, credits, ownership and never-touch, the skill map). `AGENTS-3B.md` is the source of truth for 3B workflow directories. Where they disagree about `stories/**`, `AGENTS.md` wins. Where they disagree about `workflows/**`, `AGENTS-3B.md` wins. What follows is Claude Code-specific.
 
 ## a. The Tines Stories MCP server is defined inline in `tines-builder`
 

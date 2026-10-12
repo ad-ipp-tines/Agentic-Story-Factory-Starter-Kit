@@ -2,7 +2,7 @@
 
 _Tines Stories as Code · Platform: **Tines Stories** · docs v1 (2026-09-24) · Builder: `docs` · Source of truth for the design: `../DESIGN.md`._
 
-`docs/` is the **"why" layer** of the repository. The other layers are: `AGENTS.md` (rules), `.claude/skills/` (procedures), `scripts/tines` (the API), `stories/` (truth), `tines-skills/` (tenant-side skills), `policies/` (the contract) and `.github/workflows/` (gates). Nothing in `docs/` is executed by anything; everything in `docs/` explains something that is.
+`docs/` is the **"why" layer** of the repository. The other layers are: `AGENTS.md` (Stories rules), `AGENTS-3B.md` (3B workflow rules), `.claude/skills/` (procedures), `scripts/tines` (the API), `stories/` (Stories truth), `tines-skills/` (tenant-side skills), `policies/` (the contract) and `.github/workflows/` (gates). Nothing in `docs/` is executed by anything; everything in `docs/` explains something that is.
 
 ## Reading order
 
