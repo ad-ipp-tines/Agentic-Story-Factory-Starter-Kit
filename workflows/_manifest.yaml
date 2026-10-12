@@ -1,0 +1,14 @@
+# workflows/_manifest.yaml — slug → workflow id per space.
+# No secrets, no hostnames, no credential names that carry values.
+# An id is written here only after a space assigns it. Never copy one
+# workflow's id onto another slug.
+# VERIFY: the set of space names, and that this id is the same string as
+# workflow.toml `id`, until a space clone is read (task #19).
+
+workflows:
+  template:
+    path: workflows/_template
+    description: >
+      Single TypeScript step. Copy the folder and set a new workflow id
+      before the copy is a second workflow. Not a running workflow.
+    spaces: {}

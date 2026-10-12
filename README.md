@@ -106,6 +106,9 @@ This is the new way of building: not *prompting harder*, but **prompting inside 
 │   ├── normalize.jq              # stable export: drop exported_at, sorted keys, agent order preserved
 │   ├── lint-story.sh             # deterministic checks driven by policies/lint-rules.yml
 │   └── diff-story.sh             # semantic diff for PRs and change requests
+├── workflows/                    # 3B workflow directories (space-clone layout); see workflows/README.md
+│   ├── _manifest.yaml            # slug → workflow id per space; no secrets; ids empty until assigned
+│   └── _template/                # one TypeScript step; copy it, then set a new workflow id
 ├── stories/
 │   ├── README.md                 # how a story folder is laid out; the lifecycle of story.json
 │   ├── _manifest.yaml            # environments + slug → story_id map; no secrets
@@ -280,6 +283,7 @@ When you confirm an item, update `docs/VERIFY.md` and state what changed in the 
 - [`docs/00-why-stories-as-code.md`](docs/00-why-stories-as-code.md) — for someone deciding whether to adopt this.
 - [`DESIGN.md`](DESIGN.md) — the whole specification, including the agentic monitoring story in §5.
 - [`storyline/README.md`](storyline/README.md) — before starting a new story: the lifecycle, its gates and its commands.
+- [`workflows/README.md`](workflows/README.md) — before adding a 3B workflow: the directory layout, the template, and what is still VERIFY.
 - [`kit/README.md`](kit/README.md) — before setting the Storyworks up in a tenant: the plans it supports, the one import, what it creates.
 
 Conventions that hold everywhere in this repository: placeholders (`<your-tenant>`, `<org>`, `0` for ids, `*.example.invalid`, documentation-range IPs) and never real values; no customer names, people or tenant hostnames; product names exactly as Tines writes them; guards live in the story, not in prompts; one story at a time; never hand-edit `story.json`; no secrets, ever.

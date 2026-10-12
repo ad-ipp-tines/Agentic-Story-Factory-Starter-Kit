@@ -1,0 +1,6 @@
+# VERIFY: every key in this file except `id`.
+# `id` is assigned by the space. Never copy this id onto another workflow.
+# Replace REPLACE_ON_CLONE when a space clone gives this folder a real id.
+
+id = "REPLACE_ON_CLONE"
+name = "_template"

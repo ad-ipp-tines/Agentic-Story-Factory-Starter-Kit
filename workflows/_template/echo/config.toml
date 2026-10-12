@@ -1,0 +1,12 @@
+# Step config for `echo`.
+# Keys below are the ones the 3B brief names. Which file they live in is VERIFY
+# until a space clone is read. Do not add a route here.
+
+timeout = 30
+
+# Required by the lint this kit will add (task #10). Allowed values are VERIFY.
+color = "slate"
+
+# Downstream steps. Empty stdout stops them. This step has none.
+# VERIFY: whether `links` is set in this file or in workflow.toml.
+links = []
