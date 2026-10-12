@@ -712,6 +712,15 @@
       "path": ".mcp.json.example"
     },
     {
+      "path": "3b/CURSOR-PROMPT.md"
+    },
+    {
+      "path": "3b/PIVOT.md"
+    },
+    {
+      "path": "3b/TASKS.md"
+    },
+    {
       "path": "AGENTS.md"
     },
     {
@@ -1596,6 +1605,30 @@
     },
     {
       "path": "tines-skills/story-retrospective/SKILL.md"
+    },
+    {
+      "path": "workflows/README.md"
+    },
+    {
+      "path": "workflows/_manifest.yaml"
+    },
+    {
+      "path": "workflows/_template/README.md"
+    },
+    {
+      "path": "workflows/_template/echo/Dockerfile"
+    },
+    {
+      "path": "workflows/_template/echo/README.md"
+    },
+    {
+      "path": "workflows/_template/echo/config.toml"
+    },
+    {
+      "path": "workflows/_template/echo/index.ts"
+    },
+    {
+      "path": "workflows/_template/workflow.toml"
     }
   ],
   "file_manifest_frozen": false,
